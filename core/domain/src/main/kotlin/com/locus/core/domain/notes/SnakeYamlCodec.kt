@@ -6,6 +6,7 @@ import org.yaml.snakeyaml.Yaml
 import org.yaml.snakeyaml.constructor.SafeConstructor
 import org.yaml.snakeyaml.representer.Representer
 import java.util.Date
+import javax.inject.Inject
 
 /**
  * Pure JVM [YamlCodec] backed by SnakeYAML 2.x.
@@ -13,40 +14,39 @@ import java.util.Date
  * Uses [SafeConstructor] for safe deserialization preventing arbitrary code/class execution,
  * and [DumperOptions] configured for block style matching frontmatter conventions (no flow-style maps/lists).
  */
-class SnakeYamlCodec : YamlCodec {
-
-    private val yaml: Yaml by lazy {
-        val loaderOptions = LoaderOptions()
-        val dumperOptions = DumperOptions().apply {
-            defaultFlowStyle = DumperOptions.FlowStyle.BLOCK
-            isPrettyFlow = false
-            splitLines = false
+class SnakeYamlCodec
+    @Inject
+    constructor() : YamlCodec {
+        private val yaml: Yaml by lazy {
+            val loaderOptions = LoaderOptions()
+            val dumperOptions =
+                DumperOptions().apply {
+                    defaultFlowStyle = DumperOptions.FlowStyle.BLOCK
+                    isPrettyFlow = false
+                    splitLines = false
+                }
+            val representer = Representer(dumperOptions)
+            Yaml(SafeConstructor(loaderOptions), representer, dumperOptions, loaderOptions)
         }
-        val representer = Representer(dumperOptions)
-        Yaml(SafeConstructor(loaderOptions), representer, dumperOptions, loaderOptions)
-    }
 
-    override fun decode(yamlText: String): Map<String, Any?> {
-        if (yamlText.isBlank()) return emptyMap()
-        val loaded = yaml.load<Any?>(yamlText) ?: return emptyMap()
-        if (loaded !is Map<*, *>) {
-            throw IllegalArgumentException("Expected YAML mapping but found: ${loaded::class.java.simpleName}")
+        override fun decode(yamlText: String): Map<String, Any?> {
+            if (yamlText.isBlank()) return emptyMap()
+            val loaded = yaml.load<Any?>(yamlText)
+            require(loaded == null || loaded is Map<*, *>) {
+                "Expected YAML mapping but found: ${loaded?.let { it::class.java.simpleName }}"
+            }
+            return (loaded as? Map<*, *>).orEmpty().entries.associateTo(linkedMapOf()) { (k, v) ->
+                k.toString() to sanitizeYamlValue(v)
+            }
         }
-        val result = linkedMapOf<String, Any?>()
-        for ((k, v) in loaded) {
-            result[k.toString()] = sanitizeYamlValue(v)
-        }
-        return result
-    }
 
-    override fun encode(fields: Map<String, Any?>): String {
-        return yaml.dump(fields)
-    }
+        override fun encode(fields: Map<String, Any?>): String = yaml.dump(fields)
 
-    private fun sanitizeYamlValue(value: Any?): Any? = when (value) {
-        is Date -> value.toInstant().toString()
-        is Map<*, *> -> value.entries.associate { (k, v) -> k.toString() to sanitizeYamlValue(v) }
-        is List<*> -> value.map { sanitizeYamlValue(it) }
-        else -> value
+        private fun sanitizeYamlValue(value: Any?): Any? =
+            when (value) {
+                is Date -> value.toInstant().toString()
+                is Map<*, *> -> value.entries.associate { (k, v) -> k.toString() to sanitizeYamlValue(v) }
+                is List<*> -> value.map { sanitizeYamlValue(it) }
+                else -> value
+            }
     }
-}

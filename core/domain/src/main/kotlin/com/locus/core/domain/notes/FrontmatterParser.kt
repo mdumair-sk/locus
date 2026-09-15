@@ -29,15 +29,27 @@ data class FileFallbackMetadata(
 
 interface YamlCodec {
     fun decode(yamlText: String): Map<String, Any?>
+
     fun encode(fields: Map<String, Any?>): String
 }
 
 private const val FENCE = "---"
 private val FRONTMATTER_BLOCK = Regex("(?s)\\A---\\r?\\n(.*?)\\r?\\n---\\r?\\n?")
 private val HEADING_LINE = Regex("^#{1,6}\\s+(.+?)\\s*$")
-private val KNOWN_FIELDS = setOf(
-    "id", "title", "type", "created", "modified", "pinned", "color", "tags", "history", "checksum", "app",
-)
+private val KNOWN_FIELDS =
+    setOf(
+        "id",
+        "title",
+        "type",
+        "created",
+        "modified",
+        "pinned",
+        "color",
+        "tags",
+        "history",
+        "checksum",
+        "app",
+    )
 
 /**
  * Tolerant frontmatter parser + repairer (N-5). Never throws on malformed input and never discards the
@@ -45,45 +57,33 @@ private val KNOWN_FIELDS = setOf(
  * defaults or [FileFallbackMetadata], `wasRepaired` is set, and the original raw text (minus only a
  * syntactically-recognizable frontmatter block) is preserved as the body so no user content is lost.
  */
-class FrontmatterParser(private val yaml: YamlCodec) {
-
-    fun parse(rawFile: String, fallback: FileFallbackMetadata): ParsedNote {
-        val match = FRONTMATTER_BLOCK.find(rawFile)
+class FrontmatterParser(
+    private val yaml: YamlCodec,
+) {
+    fun parse(
+        rawFile: String,
+        fallback: FileFallbackMetadata,
+    ): ParsedNote {
         val repairNotes = mutableListOf<String>()
-        val rawBody: String
-        val fields: Map<String, Any?>
-        if (match != null) {
-            rawBody = rawFile.substring(match.range.last + 1)
-            fields = runCatching { yaml.decode(match.groupValues[1]) }.getOrElse {
-                repairNotes += "frontmatter block present but not valid YAML: ${it.message}"
-                emptyMap()
-            }
-        } else {
-            rawBody = rawFile
-            fields = emptyMap()
-            if (rawFile.trimStart().startsWith(FENCE)) {
-                repairNotes += "opening fence found but no closing '---' fence; treated as no frontmatter"
-            }
-        }
+        val (rawBody, fields) = extractRawFieldsAndBody(rawFile, repairNotes)
 
-        val id = (fields["id"] as? String)?.takeIf { it.isNotBlank() }
-            ?: UUID.randomUUID().toString().also { repairNotes += "id missing/invalid; generated new id" }
+        val id =
+            (fields["id"] as? String)?.takeIf { it.isNotBlank() }
+                ?: UUID.randomUUID().toString().also { repairNotes += "id missing/invalid; generated new id" }
 
-        val title = (fields["title"] as? String)?.takeIf { it.isNotBlank() }
-            ?: firstHeadingOf(rawBody)
-            ?: "Untitled".also { repairNotes += "title missing; derived from first heading or defaulted" }
+        val title =
+            (fields["title"] as? String)?.takeIf { it.isNotBlank() }
+                ?: firstHeadingOf(rawBody)
+                ?: "Untitled".also { repairNotes += "title missing; derived from first heading or defaulted" }
 
-        val type = when ((fields["type"] as? String)?.lowercase()) {
-            "checklist" -> NoteType.CHECKLIST
-            "note" -> NoteType.NOTE
-            null -> inferTypeFromBody(rawBody)
-            else -> NoteType.NOTE.also { repairNotes += "unrecognized type value; defaulted to note" }
-        }
+        val type = inferNoteType(fields["type"], rawBody, repairNotes)
 
-        val created = parseInstantOrNull(fields["created"])
-            ?: fallback.fileCreated.also { repairNotes += "created missing/invalid; used file creation time" }
-        val modified = parseInstantOrNull(fields["modified"])
-            ?: fallback.fileModified.also { repairNotes += "modified missing/invalid; used file modification time" }
+        val created =
+            parseInstantOrNull(fields["created"])
+                ?: fallback.fileCreated.also { repairNotes += "created missing/invalid; used file creation time" }
+        val modified =
+            parseInstantOrNull(fields["modified"])
+                ?: fallback.fileModified.also { repairNotes += "modified missing/invalid; used file modification time" }
 
         val pinned = fields["pinned"] as? Boolean ?: false
         val color = fields["color"] as? String
@@ -94,21 +94,72 @@ class FrontmatterParser(private val yaml: YamlCodec) {
         val unknownFields = fields.filterKeys { it !in KNOWN_FIELDS }
 
         return ParsedNote(
-            id = id, title = title.trim(), type = type, created = created, modified = modified,
-            pinned = pinned, color = color, tags = tags, history = history, checksum = checksum, app = app,
-            unknownFields = unknownFields, body = rawBody.trimStart('\n'),
-            wasRepaired = repairNotes.isNotEmpty(), repairNotes = repairNotes,
+            id = id,
+            title = title.trim(),
+            type = type,
+            created = created,
+            modified = modified,
+            pinned = pinned,
+            color = color,
+            tags = tags,
+            history = history,
+            checksum = checksum,
+            app = app,
+            unknownFields = unknownFields,
+            body = rawBody.trimStart('\n'),
+            wasRepaired = repairNotes.isNotEmpty(),
+            repairNotes = repairNotes,
         )
     }
 
+    private fun extractRawFieldsAndBody(
+        rawFile: String,
+        repairNotes: MutableList<String>,
+    ): Pair<String, Map<String, Any?>> {
+        val match = FRONTMATTER_BLOCK.find(rawFile)
+        if (match != null) {
+            val rawBody = rawFile.substring(match.range.last + 1)
+            val fields =
+                runCatching { yaml.decode(match.groupValues[1]) }.getOrElse {
+                    repairNotes += "frontmatter block present but not valid YAML: ${it.message}"
+                    emptyMap()
+                }
+            return rawBody to fields
+        }
+        if (rawFile.trimStart().startsWith(FENCE)) {
+            repairNotes += "opening fence found but no closing '---' fence; treated as no frontmatter"
+        }
+        return rawFile to emptyMap()
+    }
+
+    private fun inferNoteType(
+        rawTypeValue: Any?,
+        rawBody: String,
+        repairNotes: MutableList<String>,
+    ): NoteType =
+        when ((rawTypeValue as? String)?.lowercase()) {
+            "checklist" -> NoteType.CHECKLIST
+            "note" -> NoteType.NOTE
+            null -> inferTypeFromBody(rawBody)
+            else -> NoteType.NOTE.also { repairNotes += "unrecognized type value; defaulted to note" }
+        }
+
     /** Re-emits unknown fields verbatim, in their original key order, after known fields. */
     fun render(note: ParsedNote): String {
-        val ordered = linkedMapOf<String, Any?>(
-            "id" to note.id, "title" to note.title, "type" to note.type.name.lowercase(),
-            "created" to note.created.toString(), "modified" to note.modified.toString(),
-            "pinned" to note.pinned, "color" to note.color, "tags" to note.tags,
-            "history" to note.history, "checksum" to note.checksum, "app" to note.app,
-        )
+        val ordered =
+            linkedMapOf<String, Any?>(
+                "id" to note.id,
+                "title" to note.title,
+                "type" to note.type.name.lowercase(),
+                "created" to note.created.toString(),
+                "modified" to note.modified.toString(),
+                "pinned" to note.pinned,
+                "color" to note.color,
+                "tags" to note.tags,
+                "history" to note.history,
+                "checksum" to note.checksum,
+                "app" to note.app,
+            )
         ordered.putAll(note.unknownFields)
         return buildString {
             append(FENCE).append('\n')
@@ -129,5 +180,7 @@ class FrontmatterParser(private val yaml: YamlCodec) {
         }
 
     private fun parseInstantOrNull(value: Any?): Instant? =
-        (value as? String)?.let { runCatching { Instant.parse(it) }.getOrNull() }
+        (value as? String)?.let {
+            runCatching { Instant.parse(it) }.getOrNull()
+        }
 }

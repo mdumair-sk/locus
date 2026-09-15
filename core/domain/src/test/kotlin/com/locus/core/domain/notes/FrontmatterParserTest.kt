@@ -3,40 +3,40 @@ package com.locus.core.domain.notes
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
-import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.time.Instant
 
 class FrontmatterParserTest {
-
     private val codec = SnakeYamlCodec()
     private val parser = FrontmatterParser(codec)
-    private val fallback = FileFallbackMetadata(
-        fileCreated = Instant.parse("2026-09-01T12:00:00Z"),
-        fileModified = Instant.parse("2026-09-02T15:30:00Z"),
-        appVersion = "Locus 1.0.0",
-    )
+    private val fallback =
+        FileFallbackMetadata(
+            fileCreated = Instant.parse("2026-09-01T12:00:00Z"),
+            fileModified = Instant.parse("2026-09-02T15:30:00Z"),
+            appVersion = "Locus 1.0.0",
+        )
 
     @Test
     fun wellFormedFrontmatterRoundTripsExactly() {
-        val original = ParsedNote(
-            id = "0191ebc2-841e-7b28-b072-46ebc605cf52",
-            title = "Trip to Kyoto",
-            type = NoteType.NOTE,
-            created = Instant.parse("2026-09-10T08:00:00Z"),
-            modified = Instant.parse("2026-09-11T09:30:00Z"),
-            pinned = true,
-            color = "#FFE082",
-            tags = listOf("travel", "japan"),
-            history = 3,
-            checksum = "sha256-abc123456",
-            app = "Locus 1.0.0",
-            unknownFields = emptyMap(),
-            body = "Pack comfortable shoes.\nVisit Fushimi Inari at dawn.",
-            wasRepaired = false,
-            repairNotes = emptyList(),
-        )
+        val original =
+            ParsedNote(
+                id = "0191ebc2-841e-7b28-b072-46ebc605cf52",
+                title = "Trip to Kyoto",
+                type = NoteType.NOTE,
+                created = Instant.parse("2026-09-10T08:00:00Z"),
+                modified = Instant.parse("2026-09-11T09:30:00Z"),
+                pinned = true,
+                color = "#FFE082",
+                tags = listOf("travel", "japan"),
+                history = 3,
+                checksum = "sha256-abc123456",
+                app = "Locus 1.0.0",
+                unknownFields = emptyMap(),
+                body = "Pack comfortable shoes.\nVisit Fushimi Inari at dawn.",
+                wasRepaired = false,
+                repairNotes = emptyList(),
+            )
 
         val rendered = parser.render(original)
         val parsed = parser.parse(rendered, fallback)
@@ -64,7 +64,8 @@ class FrontmatterParserTest {
 
     @Test
     fun missingClosingFenceRepairsWithoutDataLoss() {
-        val rawFile = """
+        val rawFile =
+            """
             ---
             id: 0191ebc2-841e-7b28-b072-46ebc605cf52
             title: Unclosed Fence Note
@@ -72,7 +73,7 @@ class FrontmatterParserTest {
             Here is the body that was never closed with three dashes!
             # Important Heading
             Don't lose this text.
-        """.trimIndent()
+            """.trimIndent()
 
         val parsed = parser.parse(rawFile, fallback)
 
@@ -87,7 +88,8 @@ class FrontmatterParserTest {
 
     @Test
     fun unknownKeySurvivesParseAndRender() {
-        val rawFile = """
+        val rawFile =
+            """
             ---
             id: 0191ebc2-841e-7b28-b072-46ebc605cf52
             title: Note with Custom Metadata
@@ -104,7 +106,7 @@ class FrontmatterParserTest {
             author: Ada Lovelace
             ---
             Note body here.
-        """.trimIndent()
+            """.trimIndent()
 
         val parsed = parser.parse(rawFile, fallback)
 
@@ -125,7 +127,8 @@ class FrontmatterParserTest {
 
     @Test
     fun checklistBodyWithNoTypeFieldInfersChecklist() {
-        val rawFile = """
+        val rawFile =
+            """
             ---
             id: 0191ebc2-841e-7b28-b072-46ebc605cf52
             title: Groceries
@@ -135,7 +138,7 @@ class FrontmatterParserTest {
             - [ ] Apples
             - [x] Milk
             - [ ] Bread
-        """.trimIndent()
+            """.trimIndent()
 
         val parsed = parser.parse(rawFile, fallback)
 
@@ -145,7 +148,8 @@ class FrontmatterParserTest {
 
     @Test
     fun bodyWithHeadingAndNoTitleFieldInfersTitle() {
-        val rawFile = """
+        val rawFile =
+            """
             ---
             id: 0191ebc2-841e-7b28-b072-46ebc605cf52
             type: note
@@ -155,7 +159,7 @@ class FrontmatterParserTest {
             # Inferred Document Title
 
             Paragraph of body text.
-        """.trimIndent()
+            """.trimIndent()
 
         val parsed = parser.parse(rawFile, fallback)
 
@@ -164,14 +168,15 @@ class FrontmatterParserTest {
 
     @Test
     fun malformedYamlNeverThrowsAndPreservesBody() {
-        val rawFile = """
+        val rawFile =
+            """
             ---
             : this is [not valid: yaml: {{{:::
               bad indentation
             ---
             Crucial user text that must never be lost.
             More lines of text.
-        """.trimIndent()
+            """.trimIndent()
 
         val parsed = parser.parse(rawFile, fallback)
 
@@ -186,11 +191,12 @@ class FrontmatterParserTest {
 
     @Test
     fun missingFrontmatterParsesSafely() {
-        val rawFile = """
+        val rawFile =
+            """
             # Grocery List
             - [ ] Eggs
             - [ ] Butter
-        """.trimIndent()
+            """.trimIndent()
 
         val parsed = parser.parse(rawFile, fallback)
 
@@ -205,7 +211,8 @@ class FrontmatterParserTest {
 
     @Test
     fun unrecognizedTypeValueDefaultsToNoteWithRepair() {
-        val rawFile = """
+        val rawFile =
+            """
             ---
             id: 0191ebc2-841e-7b28-b072-46ebc605cf52
             title: Test
@@ -214,7 +221,7 @@ class FrontmatterParserTest {
             modified: '2026-09-10T08:00:00Z'
             ---
             Body text
-        """.trimIndent()
+            """.trimIndent()
 
         val parsed = parser.parse(rawFile, fallback)
 
@@ -225,7 +232,8 @@ class FrontmatterParserTest {
 
     @Test
     fun missingOrBlankIdGeneratesNewId() {
-        val rawFile = """
+        val rawFile =
+            """
             ---
             id: "   "
             title: Empty ID
@@ -234,7 +242,7 @@ class FrontmatterParserTest {
             modified: '2026-09-10T08:00:00Z'
             ---
             Body text
-        """.trimIndent()
+            """.trimIndent()
 
         val parsed = parser.parse(rawFile, fallback)
 
@@ -245,7 +253,8 @@ class FrontmatterParserTest {
 
     @Test
     fun handEditedUnquotedTimestampParsesWithoutFalseRepair() {
-        val rawFile = """
+        val rawFile =
+            """
             ---
             id: 0191ebc2-841e-7b28-b072-46ebc605cf52
             title: Hand Edited Timestamps
@@ -258,7 +267,7 @@ class FrontmatterParserTest {
             app: Locus 1.0.0
             ---
             Body content
-        """.trimIndent()
+            """.trimIndent()
 
         val parsed = parser.parse(rawFile, fallback)
 
