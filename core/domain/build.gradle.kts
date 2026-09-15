@@ -5,6 +5,7 @@ plugins {
 dependencies {
     implementation("javax.inject:javax.inject:1")
     implementation(libs.coroutines.core)
+    implementation(libs.snakeyaml)
 
     testImplementation(libs.junit)
 }
