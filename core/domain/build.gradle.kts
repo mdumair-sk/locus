@@ -8,4 +8,5 @@ dependencies {
     implementation(libs.snakeyaml)
 
     testImplementation(libs.junit)
+    testImplementation(libs.coroutines.test)
 }

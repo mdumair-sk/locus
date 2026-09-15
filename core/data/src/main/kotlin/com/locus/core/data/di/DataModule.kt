@@ -1,5 +1,9 @@
 package com.locus.core.data.di
 
+import android.content.Context
+import androidx.room.Room
+import com.locus.core.data.db.LocusDatabase
+import com.locus.core.data.db.NoteDao
 import com.locus.core.data.files.AndroidSafNoteFileSource
 import com.locus.core.data.files.DataStoreTreeUriStore
 import com.locus.core.data.files.SafNoteFileSource
@@ -13,6 +17,7 @@ import dagger.Binds
 import dagger.Module
 import dagger.Provides
 import dagger.hilt.InstallIn
+import dagger.hilt.android.qualifiers.ApplicationContext
 import dagger.hilt.components.SingletonComponent
 import javax.inject.Singleton
 
@@ -39,5 +44,20 @@ abstract class DataModule {
         @Provides
         @Singleton
         fun provideFrontmatterParser(yamlCodec: YamlCodec): FrontmatterParser = FrontmatterParser(yamlCodec)
+
+        @Provides
+        @Singleton
+        fun provideLocusDatabase(
+            @ApplicationContext context: Context,
+        ): LocusDatabase =
+            Room
+                .databaseBuilder(
+                    context,
+                    LocusDatabase::class.java,
+                    "locus.db",
+                ).build()
+
+        @Provides
+        fun provideNoteDao(database: LocusDatabase): NoteDao = database.noteDao()
     }
 }

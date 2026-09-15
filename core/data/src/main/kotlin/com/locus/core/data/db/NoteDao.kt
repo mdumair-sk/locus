@@ -10,6 +10,9 @@ interface NoteDao {
     @Upsert
     suspend fun upsert(entity: NoteIndexEntity)
 
+    @Query("SELECT * FROM note_index WHERE id = :id")
+    suspend fun getById(id: String): NoteIndexEntity?
+
     @Query("DELETE FROM note_index WHERE id = :id")
     suspend fun deleteById(id: String)
 
