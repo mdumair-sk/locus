@@ -1,0 +1,18 @@
+complexity:
+  active: true
+  LongMethod:
+    active: true
+    threshold: 80
+  TooManyFunctions:
+    active: true
+    thresholdInFiles: 20
+    thresholdInClasses: 20
+    thresholdInInterfaces: 20
+    thresholdInObjects: 20
+    thresholdInEnums: 20
+
+style:
+  active: true
+
+potential-bugs:
+  active: true
