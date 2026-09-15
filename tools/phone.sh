@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# tools/phone.sh - Snapdragon 8 Elite Remote Execution & Device Deploy Orchestrator
+# tools/phone.sh - Phone Remote Execution & Device Deploy Orchestrator
 set -euo pipefail
 
 PORT=8022
@@ -20,9 +20,9 @@ case "${1:-status}" in
     status)
         echo "=== ADB Device ==="
         adb devices -l
-        echo "=== Snapdragon 8 Elite Node (Termux SSH) ==="
+        echo "=== Phone Node (Termux SSH) ==="
         ensure_adb_tunnel
-        if run_ssh "uname -a && echo -n 'Oryon Cores: ' && nproc" 2>/dev/null; then
+        if run_ssh "uname -a && echo -n 'Cores: ' && nproc" 2>/dev/null; then
             echo "SSH Node: Connected and ready."
         else
             echo "SSH Node: Offline or port 8022 not listening."

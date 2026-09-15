@@ -30,9 +30,9 @@ switch ($Command) {
     "status" {
         Write-Host "=== ADB Devices ===" -ForegroundColor Cyan
         adb devices -l
-        Write-Host "=== Snapdragon 8 Elite SSH Node ===" -ForegroundColor Cyan
+        Write-Host "=== Phone SSH Node ===" -ForegroundColor Cyan
         Ensure-Tunnel
-        Invoke-PhoneSSH "uname -a; echo -n 'Oryon Cores: '; nproc"
+        Invoke-PhoneSSH "uname -a; echo -n 'Cores: '; nproc"
     }
     "deploy" {
         Write-Host "Building $Flavor flavor..." -ForegroundColor Cyan
