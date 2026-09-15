@@ -10,5 +10,8 @@ data class SearchScope(
 )
 
 interface KeywordSearch {
-    suspend fun search(query: String, scope: SearchScope = SearchScope()): List<SearchResult>
+    suspend fun search(
+        query: String,
+        scope: SearchScope = SearchScope(),
+    ): List<SearchResult>
 }

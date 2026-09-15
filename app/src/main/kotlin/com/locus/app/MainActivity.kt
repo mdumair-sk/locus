@@ -3,8 +3,9 @@ package com.locus.app
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
-import androidx.compose.material3.Text
 import androidx.compose.runtime.LaunchedEffect
+import com.locus.app.navigation.LocusNavGraph
+import com.locus.app.theme.LocusTheme
 import com.locus.core.domain.notes.NoteRepository
 import dagger.hilt.android.AndroidEntryPoint
 import javax.inject.Inject
@@ -22,7 +23,9 @@ class MainActivity : ComponentActivity() {
                     noteRepository.rescan()
                 }
             }
-            Text("Locus")
+            LocusTheme {
+                LocusNavGraph()
+            }
         }
     }
 }

@@ -5,7 +5,8 @@
         android:name=".LocusApplication"
         android:allowBackup="true"
         android:label="Locus"
-        android:supportsRtl="true">
+        android:supportsRtl="true"
+        android:theme="@style/Theme.Locus">
         <activity
             android:name=".MainActivity"
             android:exported="true">

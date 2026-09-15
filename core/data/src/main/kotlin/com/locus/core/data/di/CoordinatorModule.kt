@@ -11,9 +11,7 @@ import dagger.Module
 import dagger.Provides
 import dagger.hilt.InstallIn
 import dagger.hilt.components.SingletonComponent
-import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import javax.inject.Qualifier
 import javax.inject.Singleton
@@ -34,16 +32,6 @@ abstract class CoordinatorModule {
     abstract fun bindIndexUpdateQueue(impl: RoomIndexUpdateQueue): IndexUpdateQueue
 
     companion object {
-        @Provides
-        @Singleton
-        fun provideDispatcherProvider(): DispatcherProvider =
-            object : DispatcherProvider {
-                override val io: CoroutineDispatcher = Dispatchers.IO
-                override val default: CoroutineDispatcher = Dispatchers.Default
-                override val main: CoroutineDispatcher = Dispatchers.Main
-                override val mainImmediate: CoroutineDispatcher = Dispatchers.Main.immediate
-            }
-
         @Provides
         @Singleton
         @ApplicationScope

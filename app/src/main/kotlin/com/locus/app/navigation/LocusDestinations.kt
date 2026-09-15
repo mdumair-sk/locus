@@ -1,0 +1,14 @@
+package com.locus.app.navigation
+
+object LocusDestinations {
+    const val GRID_ROUTE = "grid"
+    const val TREE_ROUTE = "tree"
+    const val SETTINGS_ROUTE = "settings"
+    const val SEARCH_ROUTE = "search"
+    const val TRASH_ROUTE = "trash"
+    const val EDITOR_ROUTE = "editor/{noteId}"
+
+    const val NOTE_ID_ARG = "noteId"
+
+    fun editorRoute(noteId: String): String = "editor/$noteId"
+}

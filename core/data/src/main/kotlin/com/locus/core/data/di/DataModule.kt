@@ -10,11 +10,11 @@ import com.locus.core.data.files.SafNoteFileSource
 import com.locus.core.data.files.SafNoteRepository
 import com.locus.core.data.files.TreeUriStore
 import com.locus.core.data.search.RoomKeywordSearch
-import com.locus.core.domain.search.KeywordSearch
 import com.locus.core.domain.notes.FrontmatterParser
 import com.locus.core.domain.notes.NoteRepository
 import com.locus.core.domain.notes.SnakeYamlCodec
 import com.locus.core.domain.notes.YamlCodec
+import com.locus.core.domain.search.KeywordSearch
 import dagger.Binds
 import dagger.Module
 import dagger.Provides
@@ -42,10 +42,10 @@ abstract class DataModule {
     @Singleton
     abstract fun bindTreeUriStore(impl: DataStoreTreeUriStore): TreeUriStore
 
-
     @Binds
     @Singleton
     abstract fun bindKeywordSearch(impl: RoomKeywordSearch): KeywordSearch
+
     companion object {
         @Provides
         @Singleton
