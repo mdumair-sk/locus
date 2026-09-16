@@ -1,5 +1,8 @@
 package com.locus.app.ui.grid
 
+import android.content.Intent
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
@@ -27,6 +30,7 @@ import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
@@ -50,8 +54,10 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
@@ -73,6 +79,7 @@ data class GridActions(
     val onNavigateToSearch: () -> Unit,
     val onTogglePin: (noteId: String, pinned: Boolean) -> Unit,
     val onSetColor: (noteId: String, color: String?) -> Unit,
+    val onSelectRootFolder: () -> Unit,
 )
 
 @Composable
@@ -83,6 +90,18 @@ fun GridScreen(
     viewModel: GridViewModel = hiltViewModel(),
 ) {
     val uiState by viewModel.uiState.collectAsState()
+    val context = LocalContext.current
+    val folderLauncher =
+        rememberLauncherForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri ->
+            if (uri != null) {
+                val flags =
+                    Intent.FLAG_GRANT_READ_URI_PERMISSION or
+                        Intent.FLAG_GRANT_WRITE_URI_PERMISSION
+                runCatching { context.contentResolver.takePersistableUriPermission(uri, flags) }
+                viewModel.setRootFolder(uri.toString())
+            }
+        }
+
     val actions =
         remember(viewModel, onNavigateToEditor, onNavigateToSearch) {
             GridActions(
@@ -90,6 +109,7 @@ fun GridScreen(
                 onNavigateToSearch = onNavigateToSearch,
                 onTogglePin = viewModel::setPinned,
                 onSetColor = viewModel::setColor,
+                onSelectRootFolder = { folderLauncher.launch(null) },
             )
         }
 
@@ -125,7 +145,15 @@ fun GridContent(
             )
         },
         floatingActionButton = {
-            FloatingActionButton(onClick = { actions.onNavigateToEditor("new") }) {
+            FloatingActionButton(
+                onClick = {
+                    if (uiState.rootUri == null) {
+                        actions.onSelectRootFolder()
+                    } else {
+                        actions.onNavigateToEditor("new")
+                    }
+                },
+            ) {
                 Icon(
                     imageVector = Icons.Default.Add,
                     contentDescription = stringResource(R.string.new_note),
@@ -134,14 +162,17 @@ fun GridContent(
         },
     ) { innerPadding ->
         Box(
-            modifier =
-                Modifier
-                    .fillMaxSize()
-                    .padding(innerPadding),
+            modifier = Modifier.fillMaxSize().padding(innerPadding),
         ) {
             when {
                 uiState.loading && uiState.notes.isEmpty() -> {
                     CircularProgressIndicator(modifier = Modifier.align(Alignment.Center))
+                }
+                uiState.rootUri == null -> {
+                    SetupFolderState(
+                        onSelectFolder = actions.onSelectRootFolder,
+                        modifier = Modifier.align(Alignment.Center),
+                    )
                 }
                 uiState.notes.isEmpty() -> {
                     EmptyNotesState(modifier = Modifier.align(Alignment.Center))
@@ -249,7 +280,8 @@ private fun NoteCard(
     modifier: Modifier = Modifier,
 ) {
     val isDark = isSystemInDarkTheme()
-    val containerColor = resolveNoteColor(note.color, isDark) ?: MaterialTheme.colorScheme.surfaceVariant
+    val containerColor =
+        resolveNoteColor(note.color, isDark) ?: MaterialTheme.colorScheme.surfaceVariant
     val outlineColor =
         if (note.color != null) {
             containerColor
@@ -376,65 +408,47 @@ private fun ColorPickerDialog(
 
     AlertDialog(
         onDismissRequest = onDismissRequest,
-        title = {
-            Text(text = stringResource(R.string.color_picker_title))
-        },
+        title = { Text(text = stringResource(R.string.color_picker_title)) },
         text = {
             Column(
                 verticalArrangement = Arrangement.spacedBy(16.dp),
                 horizontalAlignment = Alignment.CenterHorizontally,
                 modifier = Modifier.fillMaxWidth(),
             ) {
-                // Row 1: Default (none) + Coral (#F28B82) + Peach (#FBBC04)
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceEvenly,
-                ) {
-                    ColorSwatchCircle(
-                        color = MaterialTheme.colorScheme.surfaceVariant,
-                        name = stringResource(R.string.color_default),
-                        isSelected = currentColor == null,
-                        onClick = { onColorSelected(null) },
-                    )
-                    KeepNoteColorSwatches.take(SWATCHES_ROW_1_COUNT).forEach { swatch ->
+                SwatchRow(
+                    swatches = KeepNoteColorSwatches.take(SWATCHES_ROW_1_COUNT),
+                    currentColor = currentColor,
+                    isDark = isDark,
+                    onColorSelected = onColorSelected,
+                    extraLeading = {
                         ColorSwatchCircle(
-                            color = if (isDark) swatch.darkColor else swatch.lightColor,
-                            name = swatch.name,
-                            isSelected = swatch.hex.equals(currentColor, ignoreCase = true),
-                            onClick = { onColorSelected(swatch.hex) },
+                            color = MaterialTheme.colorScheme.surfaceVariant,
+                            name = stringResource(R.string.color_default),
+                            isSelected = currentColor == null,
+                            onClick = { onColorSelected(null) },
                         )
-                    }
-                }
+                    },
+                )
 
-                // Row 2: Sand (#FFF475) + Mint (#CCFF90) + Sage (#A7FFEB)
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceEvenly,
-                ) {
-                    KeepNoteColorSwatches.drop(SWATCHES_ROW_1_COUNT).take(SWATCHES_ROW_2_COUNT).forEach { swatch ->
-                        ColorSwatchCircle(
-                            color = if (isDark) swatch.darkColor else swatch.lightColor,
-                            name = swatch.name,
-                            isSelected = swatch.hex.equals(currentColor, ignoreCase = true),
-                            onClick = { onColorSelected(swatch.hex) },
-                        )
-                    }
-                }
+                SwatchRow(
+                    swatches =
+                        KeepNoteColorSwatches
+                            .drop(SWATCHES_ROW_1_COUNT)
+                            .take(SWATCHES_ROW_2_COUNT),
+                    currentColor = currentColor,
+                    isDark = isDark,
+                    onColorSelected = onColorSelected,
+                )
 
-                // Row 3: Fog (#CBF0F8) + Dusk (#D7AEFB) + Blossom (#FDCFE8)
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceEvenly,
-                ) {
-                    KeepNoteColorSwatches.drop(SWATCHES_ROW_3_START).take(SWATCHES_ROW_3_COUNT).forEach { swatch ->
-                        ColorSwatchCircle(
-                            color = if (isDark) swatch.darkColor else swatch.lightColor,
-                            name = swatch.name,
-                            isSelected = swatch.hex.equals(currentColor, ignoreCase = true),
-                            onClick = { onColorSelected(swatch.hex) },
-                        )
-                    }
-                }
+                SwatchRow(
+                    swatches =
+                        KeepNoteColorSwatches
+                            .drop(SWATCHES_ROW_3_START)
+                            .take(SWATCHES_ROW_3_COUNT),
+                    currentColor = currentColor,
+                    isDark = isDark,
+                    onColorSelected = onColorSelected,
+                )
             }
         },
         confirmButton = {
@@ -443,6 +457,30 @@ private fun ColorPickerDialog(
             }
         },
     )
+}
+
+@Composable
+private fun SwatchRow(
+    swatches: List<com.locus.app.theme.NoteColorSwatch>,
+    currentColor: String?,
+    isDark: Boolean,
+    onColorSelected: (String?) -> Unit,
+    extraLeading: (@Composable () -> Unit)? = null,
+) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.SpaceEvenly,
+    ) {
+        extraLeading?.invoke()
+        swatches.forEach { swatch ->
+            ColorSwatchCircle(
+                color = if (isDark) swatch.darkColor else swatch.lightColor,
+                name = swatch.name,
+                isSelected = swatch.hex.equals(currentColor, ignoreCase = true),
+                onClick = { onColorSelected(swatch.hex) },
+            )
+        }
+    }
 }
 
 @Composable
@@ -461,7 +499,12 @@ private fun ColorSwatchCircle(
                 .background(color)
                 .border(
                     width = if (isSelected) 2.5.dp else 1.dp,
-                    color = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline,
+                    color =
+                        if (isSelected) {
+                            MaterialTheme.colorScheme.primary
+                        } else {
+                            MaterialTheme.colorScheme.outline
+                        },
                     shape = CircleShape,
                 ).clickable(onClick = onClick),
         contentAlignment = Alignment.Center,
@@ -493,5 +536,29 @@ private fun EmptyNotesState(modifier: Modifier = Modifier) {
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
+    }
+}
+
+@Composable
+private fun SetupFolderState(
+    onSelectFolder: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Column(
+        modifier = modifier.padding(24.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.spacedBy(12.dp),
+    ) {
+        Text(
+            text = stringResource(R.string.setup_folder_title),
+            style = MaterialTheme.typography.titleLarge,
+        )
+        Text(
+            text = stringResource(R.string.setup_folder_desc),
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            textAlign = TextAlign.Center,
+        )
+        Button(onClick = onSelectFolder) { Text(stringResource(R.string.select_folder_button)) }
     }
 }

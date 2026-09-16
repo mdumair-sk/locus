@@ -44,4 +44,10 @@
     <string name="delete_note">Delete</string>
     <string name="original_folder">Original: %1$s</string>
     <string name="root_folder">Root</string>
+    <string name="setup_folder_title">Choose notes folder</string>
+    <string name="setup_folder_desc">Locus stores your notes as standard markdown files on your device. Choose a folder to begin.</string>
+    <string name="select_folder_button">Select folder</string>
+    <string name="settings_folder_title">Notes folder</string>
+    <string name="settings_change_folder">Change folder</string>
+    <string name="no_folder_selected">No folder selected</string>
 </resources>

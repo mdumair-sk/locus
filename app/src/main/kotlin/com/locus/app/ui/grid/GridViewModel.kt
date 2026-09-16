@@ -7,7 +7,7 @@ import com.locus.core.domain.notes.NoteRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import javax.inject.Inject
@@ -15,6 +15,7 @@ import javax.inject.Inject
 data class GridUiState(
     val notes: List<Note> = emptyList(),
     val loading: Boolean = true,
+    val rootUri: String? = null,
 )
 
 @HiltViewModel
@@ -24,31 +25,30 @@ class GridViewModel
         private val repo: NoteRepository,
     ) : ViewModel() {
         val uiState: StateFlow<GridUiState> =
-            repo
-                .observeAllNotes()
-                .map { notes -> GridUiState(notes = notes, loading = false) }
-                .stateIn(
-                    scope = viewModelScope,
-                    started = SharingStarted.WhileSubscribed(STOP_TIMEOUT_MILLIS),
-                    initialValue = GridUiState(loading = true),
-                )
+            combine(repo.observeAllNotes(), repo.observeRootUri()) { notes, rootUri ->
+                GridUiState(notes = notes, loading = false, rootUri = rootUri)
+            }.stateIn(
+                scope = viewModelScope,
+                started = SharingStarted.WhileSubscribed(STOP_TIMEOUT_MILLIS),
+                initialValue = GridUiState(loading = true),
+            )
 
         fun setPinned(
             noteId: String,
             pinned: Boolean,
         ) {
-            viewModelScope.launch {
-                repo.setPinned(noteId, pinned)
-            }
+            viewModelScope.launch { repo.setPinned(noteId, pinned) }
         }
 
         fun setColor(
             noteId: String,
             color: String?,
         ) {
-            viewModelScope.launch {
-                repo.setColor(noteId, color)
-            }
+            viewModelScope.launch { repo.setColor(noteId, color) }
+        }
+
+        fun setRootFolder(uriString: String) {
+            viewModelScope.launch { repo.setRootUri(uriString) }
         }
 
         private companion object {

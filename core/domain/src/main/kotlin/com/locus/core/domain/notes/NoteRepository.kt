@@ -55,4 +55,8 @@ interface NoteRepository {
     suspend fun restoreNote(noteId: String) {}
 
     fun observeTrash(): Flow<List<Note>> = kotlinx.coroutines.flow.emptyFlow()
+
+    fun observeRootUri(): Flow<String?> = kotlinx.coroutines.flow.flowOf(null)
+
+    suspend fun setRootUri(uriString: String) {}
 }

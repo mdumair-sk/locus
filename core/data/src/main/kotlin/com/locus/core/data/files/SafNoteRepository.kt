@@ -103,16 +103,26 @@ class SafNoteRepository
 
         private val refreshTrigger = MutableStateFlow(0L)
         private val noteIdToDoc = ConcurrentHashMap<String, DocumentFile>()
-        private var overrideTreeUri: Uri? = null
 
         fun refresh() {
             refreshTrigger.value = System.currentTimeMillis()
         }
 
-        fun setOverrideTreeUri(uri: Uri?) {
-            overrideTreeUri = uri
-            refresh()
-        }
+        var overrideTreeUri: Uri? = null
+            set(value) {
+                field = value
+                refresh()
+            }
+
+        override fun observeRootUri(): Flow<String?> = treeUriStore.treeUriFlow.map { it?.toString() }
+
+        override suspend fun setRootUri(uriString: String): Unit =
+            withContext(Dispatchers.IO) {
+                val uri = Uri.parse(uriString)
+                treeUriStore.setTreeUri(uri)
+                refresh()
+                rescan()
+            }
 
         private suspend fun getEffectiveTreeUri(): Uri? = overrideTreeUri ?: treeUriStore.getTreeUri()
 
@@ -468,7 +478,7 @@ class SafNoteRepository
                 val validFiles = files.filter { !isExcludedPath(computeFolderPath(it, root)) }
                 for (file in validFiles) {
                     val rawText = runCatching { fileSource.readText(file) }.getOrNull() ?: continue
-                    val folderPath = computeFolderPath(file, root)
+                    val folderPath = computeFolderPathInternal(file, root)
                     val parsed = parseDocument(file, parser, rawText)
                     val note = parsed.toDomain(folderPath)
                     noteIdToDoc[note.id] = file
@@ -476,11 +486,6 @@ class SafNoteRepository
                 }
                 notes
             }
-
-        internal fun computeFolderPath(
-            doc: DocumentFile,
-            root: DocumentFile?,
-        ): String = computeFolderPathInternal(doc, root)
 
         private companion object {
             fun createFallbackCoordinator(): NoteFlushCoordinator {
@@ -637,6 +642,11 @@ internal fun isExcludedPath(path: String): Boolean {
 }
 
 private fun normalizeFolderPath(path: String): String = path.trim().trim('/')
+
+internal fun SafNoteRepository.computeFolderPath(
+    doc: DocumentFile,
+    root: DocumentFile?,
+): String = computeFolderPathInternal(doc, root)
 
 private const val MD_EXTENSION = ".md"
 private const val MD_EXTENSION_LENGTH = 3
