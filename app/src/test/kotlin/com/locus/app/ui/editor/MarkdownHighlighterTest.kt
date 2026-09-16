@@ -202,4 +202,17 @@ class MarkdownHighlighterTest {
         assertEquals(33, codeSpan!!.start)
         assertEquals(37, codeSpan.end)
     }
+
+    @Test
+    fun deriveTitle_extractsCleanTitle() {
+        assertEquals("Untitled", deriveTitle(""))
+        assertEquals("Untitled", deriveTitle("   \n  \n  "))
+        assertEquals("Welcome to Locus", deriveTitle("# Welcome to Locus\nSome body text"))
+        assertEquals("Subheading", deriveTitle("### Subheading\nDetails here"))
+        assertEquals("First task", deriveTitle("- [ ] First task\n- [ ] Second task"))
+        assertEquals("Done task", deriveTitle("- [x] Done task\nOther text"))
+        assertEquals("Item one", deriveTitle("- Item one\n- Item two"))
+        assertEquals("Numbered item", deriveTitle("1. Numbered item\nMore text"))
+        assertEquals("Plain title line", deriveTitle("Plain title line\nSecond line"))
+    }
 }

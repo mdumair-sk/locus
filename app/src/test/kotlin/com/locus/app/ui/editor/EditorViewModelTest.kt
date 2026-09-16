@@ -140,6 +140,34 @@ class EditorViewModelTest {
             assertEquals("Loaded from SavedStateHandle", vm.uiState.value.body)
         }
 
+    @Test
+    fun onBodyChange_whenNoteIsNew_createsNoteAndPersistsBody() =
+        runTest {
+            viewModel.loadNote("new")
+            testDispatcher.scheduler.advanceUntilIdle()
+
+            viewModel.onBodyChange("# Grocery List\n- [ ] Milk")
+            testDispatcher.scheduler.advanceUntilIdle()
+
+            assertEquals("Grocery List", fakeRepo.lastCreatedTitle)
+            assertEquals(NoteType.CHECKLIST, fakeRepo.lastCreatedType)
+            assertEquals("created-note-1", fakeRepo.lastEditedNoteId)
+            assertEquals("# Grocery List\n- [ ] Milk", fakeRepo.lastEditedBody)
+            assertEquals("# Grocery List\n- [ ] Milk", viewModel.uiState.value.body)
+        }
+
+    @Test
+    fun onDispose_whenNoteIsNewAndUnchanged_doesNotFlush() =
+        runTest {
+            viewModel.loadNote("new")
+            testDispatcher.scheduler.advanceUntilIdle()
+
+            viewModel.onDispose()
+            testDispatcher.scheduler.advanceUntilIdle()
+
+            org.junit.Assert.assertNull(fakeRepo.lastFlushedNoteId)
+        }
+
     private class TestDispatcherProvider(
         private val dispatcher: CoroutineDispatcher,
     ) : DispatcherProvider {
@@ -206,11 +234,34 @@ class EditorViewModelTest {
             name: String,
         ) = Unit
 
+        var lastCreatedFolder: String? = null
+        var lastCreatedTitle: String? = null
+        var lastCreatedType: NoteType? = null
+
         override suspend fun createNote(
             folderPath: String,
             title: String,
             type: NoteType,
-        ): Note = throw NotImplementedError()
+        ): Note {
+            lastCreatedFolder = folderPath
+            lastCreatedTitle = title
+            lastCreatedType = type
+            val created =
+                Note(
+                    id = "created-note-1",
+                    title = title,
+                    type = type,
+                    folderPath = folderPath,
+                    pinned = false,
+                    color = null,
+                    tags = emptyList(),
+                    created = Instant.parse("2026-09-17T10:00:00Z"),
+                    modified = Instant.parse("2026-09-17T10:00:00Z"),
+                    checksum = "dummy",
+                )
+            emitNotes(notesFlow.value + created)
+            return created
+        }
 
         override suspend fun rescan(): RescanReport = RescanReport(0, 0, 0)
     }

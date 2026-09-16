@@ -6,6 +6,10 @@ import androidx.compose.ui.text.input.TextFieldValue
 private val UNCHECKED_BOX_REGEX = Regex("""^(\s*[-*+]\s+)\[ \](.*)$""")
 private val CHECKED_BOX_REGEX = Regex("""^(\s*[-*+]\s+)\[[xX]\](.*)$""")
 private val SOURCE_CHECKBOX_REGEX = Regex("""(?m)^[ \t]*[-*+]\s+(\[[ xX]\])""")
+private const val MAX_TITLE_LENGTH = 60
+private val HEADER_PREFIX_REGEX = Regex("""^#{1,6}\s+""")
+private val LIST_PREFIX_REGEX = Regex("""^[-*+]\s+(\[[ xX]\]\s*)?""")
+private val NUMBERED_PREFIX_REGEX = Regex("""^\d+\.\s+""")
 
 /** Wraps selection with `**` or inserts `****` at cursor, positioning cursor inside. */
 fun applyBold(value: TextFieldValue): TextFieldValue {
@@ -150,6 +154,18 @@ fun toggleCheckboxAtCharIndex(
     return toggledGlyph?.let {
         text.substring(0, glyphRange.first) + it + text.substring(glyphRange.last + 1)
     }
+}
+
+/** Derives a human-friendly note title from the first non-blank line of the markdown body. */
+fun deriveTitle(body: String): String {
+    val firstLine = body.lines().firstOrNull { it.isNotBlank() }?.trim() ?: return "Untitled"
+    val cleaned =
+        firstLine
+            .replace(HEADER_PREFIX_REGEX, "")
+            .replace(LIST_PREFIX_REGEX, "")
+            .replace(NUMBERED_PREFIX_REGEX, "")
+            .trim()
+    return cleaned.take(MAX_TITLE_LENGTH).ifBlank { "Untitled" }
 }
 
 private fun transformCurrentLine(
