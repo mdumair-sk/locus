@@ -31,4 +31,12 @@
     <string name="folder_name_error_separator">Folder name cannot contain / or \\</string>
     <string name="expand_folder">Expand folder</string>
     <string name="collapse_folder">Collapse folder</string>
+    <string name="editor_preview">Preview</string>
+    <string name="editor_edit">Edit</string>
+    <string name="editor_format_bold">Bold</string>
+    <string name="editor_format_italic">Italic</string>
+    <string name="editor_format_heading">Heading</string>
+    <string name="editor_format_list">List</string>
+    <string name="editor_format_checkbox">Checkbox</string>
+    <string name="editor_placeholder">Start typing…</string>
 </resources>

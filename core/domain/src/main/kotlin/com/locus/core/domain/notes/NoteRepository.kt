@@ -44,4 +44,9 @@ interface NoteRepository {
     )
 
     suspend fun rescan(): RescanReport
+
+    suspend fun forceFlush(
+        noteId: String,
+        trigger: FlushTrigger = FlushTrigger.EDITOR_CLOSE,
+    ) {}
 }

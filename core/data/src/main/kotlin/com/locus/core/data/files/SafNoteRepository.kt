@@ -263,6 +263,13 @@ class SafNoteRepository
             }
         }
 
+        override suspend fun forceFlush(
+            noteId: String,
+            trigger: FlushTrigger,
+        ) {
+            coordinator.forceFlush(noteId, trigger)
+        }
+
         override suspend fun setPinned(
             noteId: String,
             pinned: Boolean,
