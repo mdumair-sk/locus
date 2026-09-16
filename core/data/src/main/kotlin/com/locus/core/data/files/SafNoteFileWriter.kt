@@ -2,7 +2,6 @@ package com.locus.core.data.files
 
 import android.content.Context
 import android.net.Uri
-import android.provider.DocumentsContract
 import androidx.documentfile.provider.DocumentFile
 import com.locus.core.domain.notes.Checksum
 import com.locus.core.domain.notes.FlushReceipt
@@ -117,7 +116,9 @@ class SafNoteFileWriter
         ): FlushReceipt {
             val treeUri =
                 treeUriStore.getTreeUri()
-                    ?: throw IOException("No tree URI configured for relative path $relativePath")
+                    ?: throw IOException(
+                        "No tree URI configured for relative path $relativePath",
+                    )
             val root =
                 fileSource.getRootDocument(treeUri)
                     ?: throw IOException("Could not load root document for $treeUri")
@@ -159,29 +160,17 @@ class SafNoteFileWriter
             targetName: String,
             content: String,
         ): FlushReceipt {
-            val tempName = "$targetName.${System.currentTimeMillis()}.tmp"
-            val tempDoc =
-                parentDoc.createFile("text/markdown", tempName)
-                    ?: throw IOException("Failed to create temporary document $tempName")
-
-            var replaced = false
-            try {
-                writeContent(tempDoc, content)
-                replaced = tryRename(tempDoc, targetName)
-                if (!replaced) {
-                    val target = targetDoc ?: resolveOrCreateTarget(parentDoc, targetName)
-                    copyContent(tempDoc, target)
-                }
-                return FlushReceipt(
-                    noteId = noteId,
-                    checksum = Checksum.sha256(content),
-                    flushedAt = System.currentTimeMillis(),
-                )
-            } finally {
-                if (!replaced) {
-                    tempDoc.delete()
-                }
-            }
+            val target = targetDoc ?: parentDoc.findFile(targetName)
+            val docToWrite =
+                target
+                    ?: parentDoc.createFile("text/markdown", targetName)
+                    ?: throw IOException("Failed to create document $targetName")
+            writeContent(docToWrite, content)
+            return FlushReceipt(
+                noteId = noteId,
+                checksum = Checksum.sha256(content),
+                flushedAt = System.currentTimeMillis(),
+            )
         }
 
         private fun writeContent(
@@ -193,53 +182,7 @@ class SafNoteFileWriter
                     writer.write(content)
                     writer.flush()
                 }
-            } ?: throw IOException("Failed to open output stream for ${doc.uri}")
-        }
-
-        private fun tryRename(
-            tempDoc: DocumentFile,
-            targetName: String,
-        ): Boolean =
-            try {
-                val renamedUri =
-                    DocumentsContract.renameDocument(
-                        context.contentResolver,
-                        tempDoc.uri,
-                        targetName,
-                    )
-                if (renamedUri != null) {
-                    val renamedDoc = DocumentFile.fromSingleUri(context, renamedUri)
-                    renamedDoc?.name == targetName || renamedDoc == null
-                } else {
-                    false
-                }
-            } catch (_: UnsupportedOperationException) {
-                false
-            } catch (_: IllegalStateException) {
-                false
-            } catch (_: IOException) {
-                false
-            } catch (_: SecurityException) {
-                false
             }
-
-        private fun resolveOrCreateTarget(
-            parentDoc: DocumentFile,
-            targetName: String,
-        ): DocumentFile =
-            parentDoc.findFile(targetName)
-                ?: parentDoc.createFile("text/markdown", targetName)
-                ?: throw IOException("Failed to create target document $targetName")
-
-        private fun copyContent(
-            source: DocumentFile,
-            destination: DocumentFile,
-        ) {
-            context.contentResolver.openInputStream(source.uri)?.use { inStream ->
-                context.contentResolver.openOutputStream(destination.uri, "wt")?.use { outStream ->
-                    inStream.copyTo(outStream)
-                    outStream.flush()
-                } ?: throw IOException("Failed to open output stream for ${destination.uri}")
-            } ?: throw IOException("Failed to open input stream for ${source.uri}")
+                ?: throw IOException("Failed to open output stream for ${doc.uri}")
         }
     }

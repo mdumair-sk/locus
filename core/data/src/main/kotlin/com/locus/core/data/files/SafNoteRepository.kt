@@ -474,15 +474,19 @@ class SafNoteRepository
                 val files = fileSource.listMarkdownFiles(treeUri)
                 val root = fileSource.getRootDocument(treeUri)
                 val notes = mutableListOf<Note>()
+                val seenIds = mutableSetOf<String>()
 
-                val validFiles = files.filter { !isExcludedPath(computeFolderPath(it, root)) }
+                val validFiles =
+                    files.filter { !isExcludedPath(computeFolderPathInternal(it, root)) }
                 for (file in validFiles) {
                     val rawText = runCatching { fileSource.readText(file) }.getOrNull() ?: continue
                     val folderPath = computeFolderPathInternal(file, root)
                     val parsed = parseDocument(file, parser, rawText)
-                    val note = parsed.toDomain(folderPath)
-                    noteIdToDoc[note.id] = file
-                    notes.add(note)
+                    if (seenIds.add(parsed.id)) {
+                        val note = parsed.toDomain(folderPath)
+                        noteIdToDoc[note.id] = file
+                        notes.add(note)
+                    }
                 }
                 notes
             }
