@@ -29,6 +29,7 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.withContext
 import java.io.IOException
@@ -46,8 +47,24 @@ class SafNoteRepository
         private val treeUriStore: TreeUriStore,
         private val coordinator: NoteFlushCoordinator,
         private val noteDao: NoteDao,
+        private val trashManager: TrashManager,
     ) : NoteRepository {
         internal var clock: Clock = Clock { Instant.now() }
+
+        constructor(
+            fileSource: SafNoteFileSource,
+            parser: FrontmatterParser,
+            treeUriStore: TreeUriStore,
+            coordinator: NoteFlushCoordinator,
+            noteDao: NoteDao,
+        ) : this(
+            fileSource = fileSource,
+            parser = parser,
+            treeUriStore = treeUriStore,
+            coordinator = coordinator,
+            noteDao = noteDao,
+            trashManager = createFallbackTrashManager(fileSource, parser, noteDao),
+        )
 
         constructor(
             fileSource: SafNoteFileSource,
@@ -55,7 +72,7 @@ class SafNoteRepository
             initialTreeUri: Uri? = null,
             coordinator: NoteFlushCoordinator? = null,
             noteDao: NoteDao? = null,
-            clock: Clock = Clock { Instant.now() },
+            trashManager: TrashManager? = null,
         ) : this(
             fileSource = fileSource,
             parser = parser,
@@ -73,9 +90,15 @@ class SafNoteRepository
                 },
             coordinator = coordinator ?: createFallbackCoordinator(),
             noteDao = noteDao ?: createFallbackNoteDao(),
+            trashManager =
+                trashManager
+                    ?: createFallbackTrashManager(
+                        fileSource,
+                        parser,
+                        noteDao ?: createFallbackNoteDao(),
+                    ),
         ) {
             overrideTreeUri = initialTreeUri
-            this.clock = clock
         }
 
         private val refreshTrigger = MutableStateFlow(0L)
@@ -93,13 +116,11 @@ class SafNoteRepository
 
         private suspend fun getEffectiveTreeUri(): Uri? = overrideTreeUri ?: treeUriStore.getTreeUri()
 
-        override fun observeAllNotes(): Flow<List<Note>> =
-            combine(refreshTrigger, treeUriStore.treeUriFlow) { _, _ ->
-                loadAllNotes()
-            }
+        override fun observeAllNotes(): Flow<List<Note>> = combine(refreshTrigger, treeUriStore.treeUriFlow) { _, _ -> loadAllNotes() }
 
         override fun observeNotesInFolder(folderPath: String): Flow<List<Note>> {
             val normalizedTarget = normalizeFolderPath(folderPath)
+            if (isExcludedPath(normalizedTarget)) return flowOf(emptyList())
             return observeAllNotes().map { notes ->
                 notes.filter { normalizeFolderPath(it.folderPath) == normalizedTarget }
             }
@@ -109,7 +130,9 @@ class SafNoteRepository
             withContext(Dispatchers.IO) {
                 val treeUri =
                     getEffectiveTreeUri()
-                        ?: throw NoSuchElementException("No tree URI configured; cannot read note $noteId")
+                        ?: throw NoSuchElementException(
+                            "No tree URI configured; cannot read note $noteId",
+                        )
 
                 var doc = noteIdToDoc[noteId]
                 if (doc == null) {
@@ -117,31 +140,64 @@ class SafNoteRepository
                     doc = noteIdToDoc[noteId]
                 }
                 if (doc == null) {
-                    throw NoSuchElementException("Note with id '$noteId' not found in tree $treeUri")
+                    throw NoSuchElementException(
+                        "Note with id '$noteId' not found in tree $treeUri",
+                    )
                 }
 
                 val rawText = fileSource.readText(doc)
-                val lastModifiedMs = doc.lastModified()
-                val modifiedInstant =
-                    if (lastModifiedMs > 0) {
-                        Instant.ofEpochMilli(lastModifiedMs)
-                    } else {
-                        Instant.now()
-                    }
-                val fallback =
-                    FileFallbackMetadata(
-                        fileCreated = modifiedInstant,
-                        fileModified = modifiedInstant,
-                        appVersion = "Locus 1.0.0",
-                    )
-                val parsed = parser.parse(rawText, fallback)
+                val parsed = parseDocument(doc, parser, rawText)
                 parsed.body
             }
 
         override suspend fun listFolders(): List<String> =
             withContext(Dispatchers.IO) {
                 val treeUri = getEffectiveTreeUri() ?: return@withContext emptyList()
-                fileSource.listFolders(treeUri)
+                fileSource.listFolders(treeUri).filterNot { isExcludedPath(it) }
+            }
+
+        override suspend fun deleteNote(noteId: String): Unit =
+            withContext(Dispatchers.IO) {
+                val treeUri =
+                    getEffectiveTreeUri() ?: error("No tree URI configured; cannot delete note")
+                val root =
+                    fileSource.getRootDocument(treeUri)
+                        ?: throw IOException("Cannot load root document for $treeUri")
+
+                var doc = noteIdToDoc[noteId]
+                if (doc == null) {
+                    loadAllNotes()
+                    doc = noteIdToDoc[noteId]
+                }
+                if (doc == null) {
+                    throw NoSuchElementException("Note with id '$noteId' not found")
+                }
+
+                val folderPath = computeFolderPath(doc, root)
+                runCatching { coordinator.forceFlush(noteId, FlushTrigger.EDITOR_CLOSE) }
+                trashManager.moveToTrash(root, noteId, doc, folderPath)
+                noteIdToDoc.remove(noteId)
+                refresh()
+            }
+
+        override suspend fun restoreNote(noteId: String): Unit =
+            withContext(Dispatchers.IO) {
+                val treeUri =
+                    getEffectiveTreeUri()
+                        ?: error("No tree URI configured; cannot restore note")
+                val root =
+                    fileSource.getRootDocument(treeUri)
+                        ?: throw IOException("Cannot load root document for $treeUri")
+
+                trashManager.restoreFromTrash(root, noteId)
+                loadAllNotes()
+                refresh()
+            }
+
+        override fun observeTrash(): Flow<List<Note>> =
+            combine(refreshTrigger, treeUriStore.treeUriFlow) { _, treeUri ->
+                val effectiveUri = overrideTreeUri ?: treeUri
+                trashManager.loadTrashNotes(effectiveUri)
             }
 
         override suspend fun createFolder(
@@ -162,10 +218,15 @@ class SafNoteRepository
                         ?: throw IOException("Cannot load root document for $treeUri")
 
                 val parentDoc = resolveOrCreateDirectory(root, parentPath)
-                val existing = parentDoc.listFiles().firstOrNull { it.isDirectory && it.name == trimmedName }
+                val existing =
+                    parentDoc.listFiles().firstOrNull {
+                        it.isDirectory && it.name == trimmedName
+                    }
                 if (existing == null) {
                     parentDoc.createDirectory(trimmedName)
-                        ?: throw IOException("Failed to create directory '$trimmedName' in '$parentPath'")
+                        ?: throw IOException(
+                            "Failed to create directory '$trimmedName' in '$parentPath'",
+                        )
                 }
                 refresh()
             }
@@ -177,16 +238,19 @@ class SafNoteRepository
         ): Note =
             withContext(Dispatchers.IO) {
                 val treeUri =
-                    getEffectiveTreeUri()
-                        ?: error("No tree URI configured; cannot create note")
+                    getEffectiveTreeUri() ?: error("No tree URI configured; cannot create note")
                 val root =
                     fileSource.getRootDocument(treeUri)
-                        ?: throw java.io.IOException("Cannot load root document for $treeUri")
+                        ?: throw java.io.IOException(
+                            "Cannot load root document for $treeUri",
+                        )
 
                 val normalizedFolder = normalizeFolderPath(folderPath)
-                val resolvedTitle = resolveUniqueTitle(treeUri, root, normalizedFolder, title)
+                val resolvedTitle =
+                    resolveUniqueTitle(fileSource, treeUri, root, normalizedFolder, title)
                 val fileName = "$resolvedTitle$MD_EXTENSION"
-                val relativePath = if (normalizedFolder.isEmpty()) fileName else "$normalizedFolder/$fileName"
+                val relativePath =
+                    if (normalizedFolder.isEmpty()) fileName else "$normalizedFolder/$fileName"
 
                 val id = UuidV7.generate(clock)
                 val now = clock.now()
@@ -217,7 +281,9 @@ class SafNoteRepository
                 val flushResult = coordinator.forceFlush(id, FlushTrigger.EDITOR_CLOSE)
                 val receipt =
                     flushResult?.getOrThrow()
-                        ?: throw java.io.IOException("Failed to flush new note $id ($fileName)")
+                        ?: throw java.io.IOException(
+                            "Failed to flush new note $id ($fileName)",
+                        )
 
                 val fileChecksum = receipt.checksum
                 val entity = parsedNote.toIndexEntity(normalizedFolder, fileChecksum)
@@ -226,7 +292,8 @@ class SafNoteRepository
                 val createdDoc =
                     updatedFiles.firstOrNull { doc ->
                         doc.name == fileName &&
-                            normalizeFolderPath(computeFolderPath(doc, root)) == normalizedFolder
+                            normalizeFolderPath(computeFolderPath(doc, root)) ==
+                            normalizedFolder
                     }
                 if (createdDoc != null) {
                     noteIdToDoc[id] = createdDoc
@@ -251,7 +318,7 @@ class SafNoteRepository
                 }
 
                 val rawText = fileSource.readText(doc)
-                val parsed = parseDocument(doc, rawText)
+                val parsed = parseDocument(doc, parser, rawText)
                 val updatedNote =
                     parsed.copy(
                         body = newBody,
@@ -285,7 +352,7 @@ class SafNoteRepository
                 }
 
                 val rawText = fileSource.readText(doc)
-                val parsed = parseDocument(doc, rawText)
+                val parsed = parseDocument(doc, parser, rawText)
                 val updatedNote =
                     parsed.copy(
                         pinned = pinned,
@@ -295,7 +362,8 @@ class SafNoteRepository
                 val path = doc.uri.toString()
                 coordinator.onEdit(noteId, path, updatedContent)
                 val flushResult = coordinator.forceFlush(noteId, FlushTrigger.EDITOR_CLOSE)
-                val receipt = flushResult?.getOrThrow() ?: throw IOException("Failed to flush note $noteId")
+                val receipt =
+                    flushResult?.getOrThrow() ?: throw IOException("Failed to flush note $noteId")
 
                 val treeUri = getEffectiveTreeUri() ?: Uri.EMPTY
                 val root = runCatching { fileSource.getRootDocument(treeUri) }.getOrNull()
@@ -321,7 +389,7 @@ class SafNoteRepository
                 }
 
                 val rawText = fileSource.readText(doc)
-                val parsed = parseDocument(doc, rawText)
+                val parsed = parseDocument(doc, parser, rawText)
                 val updatedNote =
                     parsed.copy(
                         color = color,
@@ -331,7 +399,8 @@ class SafNoteRepository
                 val path = doc.uri.toString()
                 coordinator.onEdit(noteId, path, updatedContent)
                 val flushResult = coordinator.forceFlush(noteId, FlushTrigger.EDITOR_CLOSE)
-                val receipt = flushResult?.getOrThrow() ?: throw IOException("Failed to flush note $noteId")
+                val receipt =
+                    flushResult?.getOrThrow() ?: throw IOException("Failed to flush note $noteId")
 
                 val treeUri = getEffectiveTreeUri() ?: Uri.EMPTY
                 val root = runCatching { fileSource.getRootDocument(treeUri) }.getOrNull()
@@ -356,9 +425,10 @@ class SafNoteRepository
                 var removed = 0
                 val seenIds = mutableSetOf<String>()
 
-                for (file in files) {
+                val validFiles = files.filter { !isExcludedPath(computeFolderPath(it, root)) }
+                for (file in validFiles) {
                     val rawText = runCatching { fileSource.readText(file) }.getOrNull() ?: continue
-                    val parsed = parseDocument(file, rawText)
+                    val parsed = parseDocument(file, parser, rawText)
                     if (seenIds.add(parsed.id)) {
                         val fileChecksum = Checksum.sha256(rawText)
                         noteIdToDoc[parsed.id] = file
@@ -395,10 +465,11 @@ class SafNoteRepository
                 val root = fileSource.getRootDocument(treeUri)
                 val notes = mutableListOf<Note>()
 
-                for (file in files) {
+                val validFiles = files.filter { !isExcludedPath(computeFolderPath(it, root)) }
+                for (file in validFiles) {
                     val rawText = runCatching { fileSource.readText(file) }.getOrNull() ?: continue
-                    val parsed = parseDocument(file, rawText)
                     val folderPath = computeFolderPath(file, root)
+                    val parsed = parseDocument(file, parser, rawText)
                     val note = parsed.toDomain(folderPath)
                     noteIdToDoc[note.id] = file
                     notes.add(note)
@@ -409,87 +480,9 @@ class SafNoteRepository
         internal fun computeFolderPath(
             doc: DocumentFile,
             root: DocumentFile?,
-        ): String {
-            if (root == null) return ""
-            val segments = mutableListOf<String>()
-            var current = doc.parentFile
-            while (current != null && current.uri != root.uri && current != root) {
-                val name = current.name
-                if (!name.isNullOrBlank()) {
-                    segments.add(0, name)
-                }
-                current = current.parentFile
-            }
-            return segments.joinToString("/")
-        }
-
-        private suspend fun resolveUniqueTitle(
-            treeUri: Uri,
-            root: DocumentFile,
-            normalizedFolder: String,
-            desiredTitle: String,
-        ): String {
-            val folderFiles =
-                fileSource.listMarkdownFiles(treeUri).filter {
-                    normalizeFolderPath(computeFolderPath(it, root)) == normalizedFolder
-                }
-            val existingTitles =
-                folderFiles
-                    .mapNotNull { doc ->
-                        doc.name?.let { name ->
-                            if (name.endsWith(MD_EXTENSION, ignoreCase = true)) {
-                                name.dropLast(MD_EXTENSION_LENGTH)
-                            } else {
-                                name
-                            }
-                        }
-                    }.toSet()
-            return FilenameCollisionResolver.resolve(desiredTitle, existingTitles)
-        }
-
-        private fun parseDocument(
-            file: DocumentFile,
-            rawText: String,
-        ): ParsedNote {
-            val lastModifiedMs = file.lastModified()
-            val modifiedInstant =
-                if (lastModifiedMs > 0) {
-                    Instant.ofEpochMilli(lastModifiedMs)
-                } else {
-                    Instant.now()
-                }
-            val fallback =
-                FileFallbackMetadata(
-                    fileCreated = modifiedInstant,
-                    fileModified = modifiedInstant,
-                    appVersion = "Locus 1.0.0",
-                )
-            return parser.parse(rawText, fallback)
-        }
-
-        private fun ParsedNote.toIndexEntity(
-            folderPath: String,
-            checksum: String,
-        ): NoteIndexEntity =
-            NoteIndexEntity(
-                id = id,
-                title = title,
-                type = type,
-                folderPath = folderPath,
-                pinned = pinned,
-                color = color,
-                tags = tags,
-                created = created,
-                modified = modified,
-                checksum = checksum,
-                bodyPreview = body.take(BODY_PREVIEW_LENGTH),
-            )
+        ): String = computeFolderPathInternal(doc, root)
 
         private companion object {
-            private const val MD_EXTENSION = ".md"
-            private const val MD_EXTENSION_LENGTH = 3
-            private const val BODY_PREVIEW_LENGTH = 200
-
             fun createFallbackCoordinator(): NoteFlushCoordinator {
                 val dummyWriter =
                     object : NoteFileWriter {
@@ -546,25 +539,105 @@ class SafNoteRepository
 
                     override suspend fun ftsSearch(query: String): List<NoteIndexEntity> = emptyList()
                 }
+
+            fun createFallbackTrashManager(
+                fileSource: SafNoteFileSource,
+                parser: FrontmatterParser,
+                noteDao: NoteDao,
+            ): TrashManager = TrashManager(fileSource, parser, noteDao)
         }
     }
 
-private fun resolveOrCreateDirectory(
-    root: DocumentFile,
-    path: String,
-): DocumentFile {
-    val normalized = normalizeFolderPath(path)
-    if (normalized.isEmpty()) return root
-    val segments = normalized.split('/').filter { it.isNotBlank() }
-    var current: DocumentFile = root
-    for (seg in segments) {
-        val next =
-            current.listFiles().firstOrNull { it.isDirectory && it.name == seg }
-                ?: current.createDirectory(seg)
-                ?: throw IOException("Failed to create intermediate directory '$seg' in '$path'")
-        current = next
+internal fun computeFolderPathInternal(
+    doc: DocumentFile,
+    root: DocumentFile?,
+): String {
+    if (root == null) return ""
+    val segments = mutableListOf<String>()
+    var current = doc.parentFile
+    while (current != null && current.uri != root.uri && current != root) {
+        val name = current.name
+        if (!name.isNullOrBlank()) {
+            segments.add(0, name)
+        }
+        current = current.parentFile
     }
-    return current
+    return segments.joinToString("/")
+}
+
+private suspend fun resolveUniqueTitle(
+    fileSource: SafNoteFileSource,
+    treeUri: Uri,
+    root: DocumentFile,
+    normalizedFolder: String,
+    desiredTitle: String,
+): String {
+    val folderFiles =
+        fileSource.listMarkdownFiles(treeUri).filter {
+            normalizeFolderPath(computeFolderPathInternal(it, root)) == normalizedFolder
+        }
+    val existingTitles =
+        folderFiles
+            .mapNotNull { doc ->
+                doc.name?.let { name ->
+                    if (name.endsWith(MD_EXTENSION, ignoreCase = true)) {
+                        name.dropLast(MD_EXTENSION_LENGTH)
+                    } else {
+                        name
+                    }
+                }
+            }.toSet()
+    return FilenameCollisionResolver.resolve(desiredTitle, existingTitles)
+}
+
+private fun parseDocument(
+    file: DocumentFile,
+    parser: FrontmatterParser,
+    rawText: String,
+): ParsedNote {
+    val lastModifiedMs = file.lastModified()
+    val modifiedInstant =
+        if (lastModifiedMs > 0) {
+            Instant.ofEpochMilli(lastModifiedMs)
+        } else {
+            Instant.now()
+        }
+    val fallback =
+        FileFallbackMetadata(
+            fileCreated = modifiedInstant,
+            fileModified = modifiedInstant,
+            appVersion = "Locus 1.0.0",
+        )
+    return parser.parse(rawText, fallback)
+}
+
+private fun ParsedNote.toIndexEntity(
+    folderPath: String,
+    checksum: String,
+): NoteIndexEntity =
+    NoteIndexEntity(
+        id = id,
+        title = title,
+        type = type,
+        folderPath = folderPath,
+        pinned = pinned,
+        color = color,
+        tags = tags,
+        created = created,
+        modified = modified,
+        checksum = checksum,
+        bodyPreview = body.take(BODY_PREVIEW_LENGTH),
+    )
+
+internal fun isExcludedPath(path: String): Boolean {
+    val normalized = path.trim().trim('/')
+    if (normalized.isEmpty()) return false
+    val segments = normalized.split('/')
+    return segments.any { it == ".locus" || it.startsWith(".") }
 }
 
 private fun normalizeFolderPath(path: String): String = path.trim().trim('/')
+
+private const val MD_EXTENSION = ".md"
+private const val MD_EXTENSION_LENGTH = 3
+private const val BODY_PREVIEW_LENGTH = 200

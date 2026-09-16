@@ -114,6 +114,16 @@ class EditorViewModel
             _uiState.update { it.copy(isPreview = !it.isPreview) }
         }
 
+        fun deleteNote(onDeleted: () -> Unit = {}) {
+            viewModelScope.launch {
+                val id = currentNoteId
+                if (id.isNotEmpty() && id != "new") {
+                    repo.deleteNote(id)
+                    onDeleted()
+                }
+            }
+        }
+
         fun onDispose() {
             flushScope.launch {
                 editMutex.withLock {

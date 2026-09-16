@@ -49,4 +49,10 @@ interface NoteRepository {
         noteId: String,
         trigger: FlushTrigger = FlushTrigger.EDITOR_CLOSE,
     ) {}
+
+    suspend fun deleteNote(noteId: String) {}
+
+    suspend fun restoreNote(noteId: String) {}
+
+    fun observeTrash(): Flow<List<Note>> = kotlinx.coroutines.flow.emptyFlow()
 }

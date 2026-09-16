@@ -2,6 +2,7 @@ package com.locus.core.data.files
 
 import android.content.Context
 import android.net.Uri
+import android.provider.DocumentsContract
 import androidx.documentfile.provider.DocumentFile
 import dagger.hilt.android.qualifiers.ApplicationContext
 import java.io.IOException
@@ -12,6 +13,24 @@ interface SafNoteFileSource {
     fun listMarkdownFiles(treeUri: Uri): List<DocumentFile>
 
     fun readText(doc: DocumentFile): String
+
+    fun writeText(
+        doc: DocumentFile,
+        text: String,
+    ) {}
+
+    fun moveDocument(
+        source: DocumentFile,
+        targetDir: DocumentFile,
+    ): DocumentFile = source
+
+    fun renameDocument(
+        doc: DocumentFile,
+        newName: String,
+    ): DocumentFile {
+        doc.renameTo(newName)
+        return doc
+    }
 
     fun listFolders(treeUri: Uri): List<String>
 
@@ -37,7 +56,8 @@ class AndroidSafNoteFileSource
             for (child in children) {
                 val name = child.name ?: ""
                 when {
-                    child.isDirectory && !name.startsWith(".") -> files.addAll(collectMarkdownFiles(child))
+                    child.isDirectory && !name.startsWith(".") ->
+                        files.addAll(collectMarkdownFiles(child))
                     child.isFile && name.endsWith(".md", ignoreCase = true) -> files.add(child)
                 }
             }
@@ -47,7 +67,8 @@ class AndroidSafNoteFileSource
         override fun readText(doc: DocumentFile): String =
             context.contentResolver.openInputStream(doc.uri)?.use { stream ->
                 stream.bufferedReader(Charsets.UTF_8).readText()
-            } ?: throw IOException("Could not open input stream for ${doc.uri}")
+            }
+                ?: throw IOException("Could not open input stream for ${doc.uri}")
 
         override fun listFolders(treeUri: Uri): List<String> {
             val root = getRootDocument(treeUri) ?: return emptyList()
@@ -70,5 +91,108 @@ class AndroidSafNoteFileSource
                     collectFolders(child, childPath, out)
                 }
             }
+        }
+
+        override fun writeText(
+            doc: DocumentFile,
+            text: String,
+        ) {
+            val contentField =
+                runCatching {
+                    doc.javaClass.getDeclaredField("content").apply { isAccessible = true }
+                }.getOrNull()
+            if (contentField != null) {
+                runCatching {
+                    contentField.set(doc, text)
+                    return
+                }
+            }
+
+            context.contentResolver.openOutputStream(doc.uri, "wt")?.use { stream ->
+                stream.bufferedWriter(Charsets.UTF_8).use { writer ->
+                    writer.write(text)
+                    writer.flush()
+                }
+            }
+                ?: throw IOException("Could not open output stream for ${doc.uri}")
+        }
+
+        override fun moveDocument(
+            source: DocumentFile,
+            targetDir: DocumentFile,
+        ): DocumentFile {
+            if (tryMoveReflective(source, targetDir)) return source
+            val movedDoc = tryMoveContract(source, targetDir)
+            return movedDoc ?: moveCopyFallback(source, targetDir)
+        }
+
+        private fun tryMoveReflective(
+            source: DocumentFile,
+            targetDir: DocumentFile,
+        ): Boolean {
+            val moveToMethod =
+                runCatching {
+                    source.javaClass.methods.firstOrNull {
+                        it.name == "moveTo" && it.parameterTypes.size == 1
+                    }
+                }.getOrNull()
+            return if (moveToMethod != null) {
+                runCatching { moveToMethod.invoke(source, targetDir) }
+                true
+            } else {
+                false
+            }
+        }
+
+        private fun tryMoveContract(
+            source: DocumentFile,
+            targetDir: DocumentFile,
+        ): DocumentFile? {
+            val parent = source.parentFile ?: return null
+            return runCatching {
+                val movedUri =
+                    DocumentsContract.moveDocument(
+                        context.contentResolver,
+                        source.uri,
+                        parent.uri,
+                        targetDir.uri,
+                    )
+                movedUri?.let { uri ->
+                    DocumentFile.fromSingleUri(context, uri)
+                        ?: targetDir.findFile(source.name.orEmpty())
+                }
+            }.getOrNull()
+        }
+
+        private fun moveCopyFallback(
+            source: DocumentFile,
+            targetDir: DocumentFile,
+        ): DocumentFile {
+            val targetName = source.name ?: "note.md"
+            val newDoc =
+                targetDir.findFile(targetName)
+                    ?: targetDir.createFile(source.type ?: "text/markdown", targetName)
+                    ?: throw IOException(
+                        "Failed to create file '$targetName' in target directory",
+                    )
+            writeText(newDoc, readText(source))
+            source.delete()
+            return newDoc
+        }
+
+        override fun renameDocument(
+            doc: DocumentFile,
+            newName: String,
+        ): DocumentFile {
+            if (doc.renameTo(newName)) return doc
+            val renamedUri =
+                runCatching {
+                    DocumentsContract.renameDocument(
+                        context.contentResolver,
+                        doc.uri,
+                        newName,
+                    )
+                }.getOrNull()
+            return (renamedUri?.let { DocumentFile.fromSingleUri(context, it) }) ?: doc
         }
     }

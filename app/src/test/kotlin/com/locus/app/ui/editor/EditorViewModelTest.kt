@@ -168,6 +168,18 @@ class EditorViewModelTest {
             org.junit.Assert.assertNull(fakeRepo.lastFlushedNoteId)
         }
 
+    @Test
+    fun deleteNote_delegatesToRepositoryAndInvokesCallback() =
+        runTest {
+            viewModel.loadNote("note-to-delete")
+            var callbackInvoked = false
+            viewModel.deleteNote(onDeleted = { callbackInvoked = true })
+            testDispatcher.scheduler.advanceUntilIdle()
+
+            assertEquals("note-to-delete", fakeRepo.lastDeletedId)
+            assertTrue(callbackInvoked)
+        }
+
     private class TestDispatcherProvider(
         private val dispatcher: CoroutineDispatcher,
     ) : DispatcherProvider {
@@ -189,6 +201,8 @@ class EditorViewModelTest {
         var lastEditedBody: String? = null
         var lastFlushedNoteId: String? = null
         var lastFlushTrigger: FlushTrigger? = null
+
+        var lastDeletedId: String? = null
 
         fun emitNotes(notes: List<Note>) {
             notesFlow.value = notes
@@ -215,6 +229,10 @@ class EditorViewModelTest {
         ) {
             lastFlushedNoteId = noteId
             lastFlushTrigger = trigger
+        }
+
+        override suspend fun deleteNote(noteId: String) {
+            lastDeletedId = noteId
         }
 
         override suspend fun setPinned(

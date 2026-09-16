@@ -28,7 +28,8 @@ import org.robolectric.RobolectricTestRunner
 @RunWith(RobolectricTestRunner::class)
 class SafNoteRepositoryTest {
     private lateinit var parser: FrontmatterParser
-    private val treeUri: Uri = Uri.parse("content://com.android.externalstorage.documents/tree/primary%3ANotes")
+    private val treeUri: Uri =
+        Uri.parse("content://com.android.externalstorage.documents/tree/primary%3ANotes")
 
     @Before
     fun setUp() {
@@ -58,6 +59,32 @@ class SafNoteRepositoryTest {
         }
 
         override fun readText(doc: DocumentFile): String = (doc as? TestDocumentFile)?.content ?: ""
+
+        override fun writeText(
+            doc: DocumentFile,
+            text: String,
+        ) {
+            (doc as? TestDocumentFile)?.content = text
+        }
+
+        override fun moveDocument(
+            source: DocumentFile,
+            targetDir: DocumentFile,
+        ): DocumentFile {
+            if (source is TestDocumentFile && targetDir is TestDocumentFile) {
+                source.moveTo(targetDir)
+                return source
+            }
+            return source
+        }
+
+        override fun renameDocument(
+            doc: DocumentFile,
+            newName: String,
+        ): DocumentFile {
+            doc.renameTo(newName)
+            return doc
+        }
 
         override fun listFolders(treeUri: Uri): List<String> {
             val result = mutableListOf<String>()
@@ -480,7 +507,10 @@ class SafNoteRepositoryTest {
             assertNull(afterClear[0].color)
         }
 
-    private fun createRepository(root: TestDocumentFile): SafNoteRepository {
+    private fun createRepository(
+        root: TestDocumentFile,
+        noteDao: com.locus.core.data.db.NoteDao? = null,
+    ): SafNoteRepository {
         val fileSource = FakeSafNoteFileSource(root)
         val fileWriter =
             object : NoteFileWriter {
@@ -520,6 +550,7 @@ class SafNoteRepositoryTest {
             parser = parser,
             coordinator = coordinator,
             initialTreeUri = treeUri,
+            noteDao = noteDao,
         )
     }
 
@@ -582,5 +613,188 @@ class SafNoteRepositoryTest {
 
             val folders = repository.listFolders()
             assertEquals(listOf("ExternalFolder", "ExternalFolder/Nested"), folders)
+        }
+
+    @Test
+    fun deleteNote_and_restoreNote_acceptanceCycle() =
+        runTest {
+            val root = TestDocumentFile(parent = null, docName = "Notes", isDir = true)
+            val workDir = TestDocumentFile(parent = root, docName = "Work", isDir = true)
+            val projectsDir = TestDocumentFile(parent = workDir, docName = "Projects", isDir = true)
+            workDir.children.add(projectsDir)
+            root.children.add(workDir)
+
+            val rawNote =
+                """
+                ---
+                id: 0191ebc2-0000-7000-8000-000000000099
+                title: Critical Project
+                type: note
+                ---
+                Top secret deliverables.
+                """.trimIndent()
+            val noteFile =
+                TestDocumentFile(
+                    parent = projectsDir,
+                    docName = "Critical Project.md",
+                    isDir = false,
+                    content = rawNote,
+                )
+            projectsDir.children.add(noteFile)
+
+            val noteDao =
+                object : com.locus.core.data.db.NoteDao {
+                    val map =
+                        java.util.concurrent.ConcurrentHashMap<
+                            String,
+                            com.locus.core.data.db.NoteIndexEntity,
+                        >()
+
+                    override suspend fun upsert(entity: com.locus.core.data.db.NoteIndexEntity) {
+                        map[entity.id] = entity
+                    }
+
+                    override suspend fun getById(id: String): com.locus.core.data.db.NoteIndexEntity? = map[id]
+
+                    override suspend fun deleteById(id: String) {
+                        map.remove(id)
+                    }
+
+                    override fun observeAll(): kotlinx.coroutines.flow.Flow<
+                        List<com.locus.core.data.db.NoteIndexEntity>,
+                    > =
+                        kotlinx.coroutines.flow.MutableStateFlow(map.values.toList())
+
+                    override fun observeByFolder(
+                        path: String,
+                    ): kotlinx.coroutines.flow.Flow<List<com.locus.core.data.db.NoteIndexEntity>> =
+                        kotlinx.coroutines.flow.MutableStateFlow(
+                            map.values.filter { it.folderPath == path },
+                        )
+
+                    override suspend fun ftsSearch(query: String): List<com.locus.core.data.db.NoteIndexEntity> =
+                        map.values.filter { it.title.contains(query, ignoreCase = true) }
+                }
+
+            val repository = createRepository(root, noteDao = noteDao)
+
+            // Step 1: Initial state - note exists in "Work/Projects"
+            val initialNotes = repository.observeAllNotes().first()
+            assertEquals(1, initialNotes.size)
+            assertEquals("0191ebc2-0000-7000-8000-000000000099", initialNotes[0].id)
+            assertEquals("Work/Projects", initialNotes[0].folderPath)
+
+            val initialFolderNotes = repository.observeNotesInFolder("Work/Projects").first()
+            assertEquals(1, initialFolderNotes.size)
+
+            val initialFolders = repository.listFolders()
+            assertEquals(listOf("Work", "Work/Projects"), initialFolders)
+
+            // Step 2: Delete note
+            repository.deleteNote("0191ebc2-0000-7000-8000-000000000099")
+
+            // AC: Deleting moves files to .locus/trash/, note no longer in active views
+            val notesAfterDelete = repository.observeAllNotes().first()
+            assertTrue(notesAfterDelete.isEmpty())
+
+            val folderNotesAfterDelete = repository.observeNotesInFolder("Work/Projects").first()
+            assertTrue(folderNotesAfterDelete.isEmpty())
+
+            // AC: .locus/trash/ never appears in Tree
+            val foldersAfterDelete = repository.listFolders()
+            assertEquals(listOf("Work", "Work/Projects"), foldersAfterDelete)
+            assertTrue(foldersAfterDelete.none { it.startsWith(".locus") })
+
+            // AC: .locus/trash/ never appears in Search
+            val searchResultsAfterDelete = noteDao.ftsSearch("Critical")
+            assertTrue(searchResultsAfterDelete.isEmpty())
+
+            // AC: Note is visible in Trash with original folderPath
+            val trashNotes = repository.observeTrash().first()
+            assertEquals(1, trashNotes.size)
+            assertEquals("0191ebc2-0000-7000-8000-000000000099", trashNotes[0].id)
+            assertEquals("Work/Projects", trashNotes[0].folderPath)
+            assertEquals("Critical Project", trashNotes[0].title)
+
+            // Step 3: Restore note
+            repository.restoreNote("0191ebc2-0000-7000-8000-000000000099")
+
+            // AC: Restoring returns note to original folder with original id unchanged
+            val notesAfterRestore = repository.observeAllNotes().first()
+            assertEquals(1, notesAfterRestore.size)
+            assertEquals("0191ebc2-0000-7000-8000-000000000099", notesAfterRestore[0].id)
+            assertEquals("Work/Projects", notesAfterRestore[0].folderPath)
+            assertEquals("Critical Project", notesAfterRestore[0].title)
+
+            val folderNotesAfterRestore = repository.observeNotesInFolder("Work/Projects").first()
+            assertEquals(1, folderNotesAfterRestore.size)
+            assertEquals("0191ebc2-0000-7000-8000-000000000099", folderNotesAfterRestore[0].id)
+
+            // AC: Trash is now empty
+            val trashAfterRestore = repository.observeTrash().first()
+            assertTrue(trashAfterRestore.isEmpty())
+
+            // AC: Search returns the restored note
+            val searchResultsAfterRestore = noteDao.ftsSearch("Critical")
+            assertEquals(1, searchResultsAfterRestore.size)
+            assertEquals("0191ebc2-0000-7000-8000-000000000099", searchResultsAfterRestore[0].id)
+
+            // AC: Tree still excludes .locus
+            val foldersAfterRestore = repository.listFolders()
+            assertEquals(listOf("Work", "Work/Projects"), foldersAfterRestore)
+        }
+
+    @Test
+    fun restoreNote_withFilenameCollision_resolvesCollisionAndPreservesId() =
+        runTest {
+            val root = TestDocumentFile(parent = null, docName = "Notes", isDir = true)
+            val workDir = TestDocumentFile(parent = root, docName = "Work", isDir = true)
+            root.children.add(workDir)
+
+            val noteId = "0191ebc2-0000-7000-8000-000000000088"
+            val rawNote =
+                """
+                ---
+                id: $noteId
+                title: Summary
+                type: note
+                ---
+                Original summary.
+                """.trimIndent()
+            val noteFile =
+                TestDocumentFile(
+                    parent = workDir,
+                    docName = "Summary.md",
+                    isDir = false,
+                    content = rawNote,
+                )
+            workDir.children.add(noteFile)
+
+            val repository = createRepository(root)
+            repository.deleteNote(noteId)
+
+            // Create a colliding file in Work
+            val collidingNote =
+                TestDocumentFile(
+                    parent = workDir,
+                    docName = "Summary.md",
+                    isDir = false,
+                    content = "# Newly created summary",
+                )
+            workDir.children.add(collidingNote)
+
+            // Restore the trashed note
+            repository.restoreNote(noteId)
+
+            // Verify both files exist and restored note kept its original id
+            val allNotes = repository.observeAllNotes().first()
+            val restoredNote = allNotes.firstOrNull { it.id == noteId }
+            assertTrue(restoredNote != null)
+            assertEquals(noteId, restoredNote!!.id)
+            assertEquals("Work", restoredNote.folderPath)
+
+            // Disk file was resolved with collision resolver (Summary (2).md)
+            val resolvedFile = workDir.children.firstOrNull { it.name == "Summary (2).md" }
+            assertTrue(resolvedFile != null)
         }
 }

@@ -14,6 +14,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -75,22 +76,33 @@ fun EditorScreen(
 
     val uiState by viewModel.uiState.collectAsState()
 
+    val actions =
+        EditorActions(
+            onNavigateBack = onNavigateBack,
+            onTogglePreview = { viewModel.togglePreview() },
+            onBodyChange = { viewModel.onBodyChange(it) },
+            onDeleteNote = { viewModel.deleteNote(onDeleted = onNavigateBack) },
+        )
+
     EditorContent(
         uiState = uiState,
-        onNavigateBack = onNavigateBack,
-        onTogglePreview = { viewModel.togglePreview() },
-        onBodyChange = { viewModel.onBodyChange(it) },
+        actions = actions,
         modifier = modifier,
     )
 }
+
+private data class EditorActions(
+    val onNavigateBack: () -> Unit,
+    val onTogglePreview: () -> Unit,
+    val onBodyChange: (String) -> Unit,
+    val onDeleteNote: () -> Unit,
+)
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun EditorContent(
     uiState: EditorUiState,
-    onNavigateBack: () -> Unit,
-    onTogglePreview: () -> Unit,
-    onBodyChange: (String) -> Unit,
+    actions: EditorActions,
     modifier: Modifier = Modifier,
 ) {
     var textFieldValue by remember { mutableStateOf(TextFieldValue(uiState.body)) }
@@ -106,8 +118,9 @@ private fun EditorContent(
             EditorTopBar(
                 title = uiState.title,
                 isPreview = uiState.isPreview,
-                onNavigateBack = onNavigateBack,
-                onTogglePreview = onTogglePreview,
+                onNavigateBack = actions.onNavigateBack,
+                onTogglePreview = actions.onTogglePreview,
+                onDeleteNote = actions.onDeleteNote,
             )
         },
         modifier = modifier.fillMaxSize(),
@@ -121,7 +134,7 @@ private fun EditorContent(
                     onCheckboxToggle = { lineIndex ->
                         val updated = toggleCheckboxAtLine(uiState.body, lineIndex)
                         textFieldValue = textFieldValue.copy(text = updated)
-                        onBodyChange(updated)
+                        actions.onBodyChange(updated)
                     },
                     modifier = Modifier.fillMaxSize(),
                 )
@@ -130,7 +143,7 @@ private fun EditorContent(
                     textFieldValue = textFieldValue,
                     onValueChange = { newValue ->
                         textFieldValue = newValue
-                        onBodyChange(newValue.text)
+                        actions.onBodyChange(newValue.text)
                     },
                 )
             }
@@ -145,6 +158,7 @@ private fun EditorTopBar(
     isPreview: Boolean,
     onNavigateBack: () -> Unit,
     onTogglePreview: () -> Unit,
+    onDeleteNote: () -> Unit,
 ) {
     TopAppBar(
         title = {
@@ -172,6 +186,12 @@ private fun EditorTopBar(
                             stringResource(R.string.editor_preview)
                         },
                     fontWeight = FontWeight.Bold,
+                )
+            }
+            IconButton(onClick = onDeleteNote) {
+                Icon(
+                    imageVector = Icons.Default.Delete,
+                    contentDescription = stringResource(R.string.delete_note),
                 )
             }
         },
