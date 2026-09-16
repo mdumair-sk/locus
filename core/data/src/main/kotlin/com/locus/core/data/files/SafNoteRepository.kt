@@ -318,6 +318,7 @@ class SafNoteRepository
         }
 
         private fun normalizeFolderPath(path: String): String = path.trim().trim('/')
+
         private suspend fun resolveUniqueTitle(
             treeUri: Uri,
             root: DocumentFile,
