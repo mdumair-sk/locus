@@ -840,4 +840,45 @@ class SafNoteRepositoryTest {
             val body = repository.readBody(noteId)
             assertEquals("Some content.", body.trim())
         }
+
+    @Test
+    fun setTitle_emptyTitle_persistsEmptyTitleWithoutSnappingToUntitled() =
+        runTest {
+            val root = TestDocumentFile(parent = null, docName = "Notes", isDir = true)
+            val workDir = TestDocumentFile(parent = root, docName = "Work", isDir = true)
+            root.children.add(workDir)
+
+            val noteId = "0191ebc2-0000-7000-8000-000000000066"
+            val rawNote =
+                """
+                ---
+                id: $noteId
+                title: Some Title
+                type: note
+                ---
+                Body.
+                """.trimIndent()
+            val noteFile =
+                TestDocumentFile(
+                    parent = workDir,
+                    docName = "Some Title.md",
+                    isDir = false,
+                    content = rawNote,
+                )
+            workDir.children.add(noteFile)
+
+            val repository = createRepository(root)
+
+            // Clear title
+            repository.setTitle(noteId, "")
+
+            val raw = noteFile.content
+            val containsEmptyTitle =
+                raw.contains("title: \"\"") ||
+                    raw.contains("title: ''") ||
+                    raw.contains("title:\n") ||
+                    raw.contains("title: null") ||
+                    raw.contains("title: ")
+            assertTrue(containsEmptyTitle)
+        }
 }

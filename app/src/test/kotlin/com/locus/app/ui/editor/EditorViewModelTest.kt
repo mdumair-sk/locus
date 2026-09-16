@@ -221,6 +221,53 @@ class EditorViewModelTest {
             assertEquals("Custom Explicit Title", viewModel.uiState.value.title)
         }
 
+    @Test
+    fun onTitleChange_debouncesRapidKeystrokes() =
+        runTest {
+            viewModel.loadNote("existing-note")
+
+            // Rapid keystrokes within debounce window
+            viewModel.onTitleChange("T")
+            viewModel.onTitleChange("Ti")
+            viewModel.onTitleChange("Tit")
+            viewModel.onTitleChange("Title")
+
+            // Before debounce elapses, repo hasn't been called yet
+            assertEquals("Title", viewModel.uiState.value.title)
+
+            // Advance time past 600ms debounce
+            testDispatcher.scheduler.advanceUntilIdle()
+
+            assertEquals("Title", viewModel.uiState.value.title)
+            assertEquals("existing-note", fakeRepo.lastTitleNoteId)
+            assertEquals("Title", fakeRepo.lastTitle)
+        }
+
+    @Test
+    fun onTitleChange_allowsEmptyTitleWithoutReset() =
+        runTest {
+            viewModel.loadNote("existing-note")
+            viewModel.onTitleChange("")
+            testDispatcher.scheduler.advanceUntilIdle()
+
+            assertEquals("", viewModel.uiState.value.title)
+            assertEquals("existing-note", fakeRepo.lastTitleNoteId)
+            assertEquals("", fakeRepo.lastTitle)
+        }
+
+    @Test
+    fun onStop_flushesPendingTitleImmediately() =
+        runTest {
+            viewModel.loadNote("existing-note")
+            viewModel.onTitleChange("Unfinished Title")
+            // Call onStop before 600ms elapses
+            viewModel.onStop()
+            testDispatcher.scheduler.advanceUntilIdle()
+
+            assertEquals("existing-note", fakeRepo.lastTitleNoteId)
+            assertEquals("Unfinished Title", fakeRepo.lastTitle)
+        }
+
     private class TestDispatcherProvider(
         private val dispatcher: CoroutineDispatcher,
     ) : DispatcherProvider {

@@ -439,11 +439,12 @@ class SafNoteRepository
 
                 val rawText = fileSource.readText(doc)
                 val parsed = parseDocument(doc, parser, rawText)
-                val trimmedTitle = newTitle.trim().ifEmpty { "Untitled" }
+                val trimmedTitle = newTitle.trim()
                 if (parsed.title == trimmedTitle) return@withContext
 
                 val folderPath = computeFolderPathInternal(doc, root)
-                val safeFileName = sanitizeFileName(trimmedTitle)
+                val safeFileName = sanitizeFileName(trimmedTitle.ifEmpty { "Untitled" })
+
                 val resolvedTitle =
                     resolveUniqueTitle(
                         fileSource = fileSource,

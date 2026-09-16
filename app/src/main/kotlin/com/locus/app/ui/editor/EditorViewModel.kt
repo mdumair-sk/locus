@@ -12,6 +12,7 @@ import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -41,8 +42,9 @@ class EditorViewModel
             savedStateHandle.get<String>(LocusDestinations.NOTE_ID_ARG).orEmpty()
         private val editMutex = Mutex()
         private var isCustomTitle: Boolean = false
+        private var isTitleActivelyEditing: Boolean = false
+        private var titleDebounceJob: Job? = null
         private var observeNotesJob: Job? = null
-
         private val _uiState = MutableStateFlow(EditorUiState())
         val uiState: StateFlow<EditorUiState> = _uiState.asStateFlow()
 
@@ -74,7 +76,11 @@ class EditorViewModel
                     repo.observeAllNotes().collect { notes ->
                         val note = notes.find { it.id == id }
                         if (note != null) {
-                            _uiState.update { it.copy(title = note.title, type = note.type) }
+                            _uiState.update { current ->
+                                val updatedTitle =
+                                    if (isTitleActivelyEditing) current.title else note.title
+                                current.copy(title = updatedTitle, type = note.type)
+                            }
                         }
                     }
                 }
@@ -82,34 +88,39 @@ class EditorViewModel
 
         fun onTitleChange(newTitle: String) {
             isCustomTitle = true
+            isTitleActivelyEditing = true
             _uiState.update { it.copy(title = newTitle) }
-            viewModelScope.launch(dispatchers.io) {
-                editMutex.withLock {
-                    if (currentNoteId.isNotEmpty() && currentNoteId != "new") {
-                        repo.setTitle(currentNoteId, newTitle)
-                    } else if (newTitle.isNotBlank()) {
-                        val noteType =
-                            if (_uiState.value.body.contains("- [ ]") ||
-                                _uiState.value.body.contains("- [x]")
-                            ) {
-                                NoteType.CHECKLIST
-                            } else {
-                                NoteType.NOTE
+            titleDebounceJob?.cancel()
+            titleDebounceJob =
+                viewModelScope.launch(dispatchers.io) {
+                    delay(TITLE_DEBOUNCE_MILLIS)
+                    editMutex.withLock {
+                        if (currentNoteId.isNotEmpty() && currentNoteId != "new") {
+                            repo.setTitle(currentNoteId, newTitle)
+                        } else if (newTitle.isNotBlank()) {
+                            val noteType =
+                                if (_uiState.value.body.contains("- [ ]") ||
+                                    _uiState.value.body.contains("- [x]")
+                                ) {
+                                    NoteType.CHECKLIST
+                                } else {
+                                    NoteType.NOTE
+                                }
+                            val created =
+                                repo.createNote(
+                                    folderPath = "",
+                                    title = newTitle,
+                                    type = noteType,
+                                )
+                            currentNoteId = created.id
+                            startObservingNote(created.id)
+                            if (_uiState.value.body.isNotEmpty()) {
+                                repo.edit(created.id, _uiState.value.body)
                             }
-                        val created =
-                            repo.createNote(
-                                folderPath = "",
-                                title = newTitle,
-                                type = noteType,
-                            )
-                        currentNoteId = created.id
-                        startObservingNote(created.id)
-                        if (_uiState.value.body.isNotEmpty()) {
-                            repo.edit(created.id, _uiState.value.body)
                         }
+                        isTitleActivelyEditing = false
                     }
                 }
-            }
         }
 
         fun onBodyChange(newBody: String) {
@@ -173,9 +184,15 @@ class EditorViewModel
             flushScope.launch {
                 editMutex.withLock {
                     val id = currentNoteId
+                    val pendingTitle = _uiState.value.title
                     if (id.isNotEmpty() && id != "new") {
+                        titleDebounceJob?.cancel()
+                        if (isCustomTitle) {
+                            repo.setTitle(id, pendingTitle)
+                        }
                         runCatching { repo.forceFlush(id, FlushTrigger.EDITOR_CLOSE) }
                     }
+                    isTitleActivelyEditing = false
                 }
             }
         }
@@ -184,9 +201,15 @@ class EditorViewModel
             flushScope.launch {
                 editMutex.withLock {
                     val id = currentNoteId
+                    val pendingTitle = _uiState.value.title
                     if (id.isNotEmpty() && id != "new") {
+                        titleDebounceJob?.cancel()
+                        if (isCustomTitle) {
+                            repo.setTitle(id, pendingTitle)
+                        }
                         runCatching { repo.forceFlush(id, FlushTrigger.ON_STOP) }
                     }
+                    isTitleActivelyEditing = false
                 }
             }
         }
@@ -194,5 +217,9 @@ class EditorViewModel
         override fun onCleared() {
             super.onCleared()
             onDispose()
+        }
+
+        private companion object {
+            private const val TITLE_DEBOUNCE_MILLIS = 600L
         }
     }

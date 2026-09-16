@@ -106,10 +106,17 @@ private fun EditorContent(
     modifier: Modifier = Modifier,
 ) {
     var textFieldValue by remember { mutableStateOf(TextFieldValue(uiState.body)) }
+    var titleFieldValue by remember { mutableStateOf(TextFieldValue(uiState.title)) }
 
     LaunchedEffect(uiState.body) {
         if (textFieldValue.text != uiState.body) {
             textFieldValue = textFieldValue.copy(text = uiState.body)
+        }
+    }
+
+    LaunchedEffect(uiState.title) {
+        if (titleFieldValue.text != uiState.title) {
+            titleFieldValue = titleFieldValue.copy(text = uiState.title)
         }
     }
 
@@ -150,8 +157,11 @@ private fun EditorContent(
                 }
             } else {
                 SourceEditorColumn(
-                    title = uiState.title,
-                    onTitleChange = actions.onTitleChange,
+                    titleFieldValue = titleFieldValue,
+                    onTitleChange = { newTitleValue ->
+                        titleFieldValue = newTitleValue
+                        actions.onTitleChange(newTitleValue.text)
+                    },
                     textFieldValue = textFieldValue,
                     onValueChange = { newValue ->
                         textFieldValue = newValue
@@ -205,15 +215,15 @@ private fun EditorTopBar(
 
 @Composable
 private fun SourceEditorColumn(
-    title: String,
-    onTitleChange: (String) -> Unit,
+    titleFieldValue: TextFieldValue,
+    onTitleChange: (TextFieldValue) -> Unit,
     textFieldValue: TextFieldValue,
     onValueChange: (TextFieldValue) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     Column(modifier = modifier.fillMaxSize()) {
         TitleInputField(
-            title = title,
+            titleFieldValue = titleFieldValue,
             onTitleChange = onTitleChange,
         )
         HorizontalDivider()
@@ -238,14 +248,14 @@ private fun SourceEditorColumn(
 
 @Composable
 private fun TitleInputField(
-    title: String,
-    onTitleChange: (String) -> Unit,
+    titleFieldValue: TextFieldValue,
+    onTitleChange: (TextFieldValue) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     Box(
         modifier = modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp),
     ) {
-        if (title.isEmpty()) {
+        if (titleFieldValue.text.isEmpty()) {
             Text(
                 text = stringResource(R.string.note_title_placeholder),
                 style = MaterialTheme.typography.titleLarge,
@@ -254,7 +264,7 @@ private fun TitleInputField(
             )
         }
         BasicTextField(
-            value = title,
+            value = titleFieldValue,
             onValueChange = onTitleChange,
             singleLine = true,
             textStyle =
