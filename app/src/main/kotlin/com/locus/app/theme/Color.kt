@@ -114,8 +114,9 @@ fun resolveNoteColor(
 ): Color? {
     if (colorHex.isNullOrBlank()) return null
     val swatch = KeepNoteColorSwatches.firstOrNull { it.hex.equals(colorHex, ignoreCase = true) }
-    if (swatch != null) {
-        return if (isDark) swatch.darkColor else swatch.lightColor
+    return if (swatch != null) {
+        if (isDark) swatch.darkColor else swatch.lightColor
+    } else {
+        parseHexColor(colorHex)
     }
-    return parseHexColor(colorHex)
 }

@@ -60,6 +60,21 @@ import com.locus.app.theme.KeepNoteColorSwatches
 import com.locus.app.theme.resolveNoteColor
 import com.locus.core.domain.notes.Note
 
+private const val GRID_COLUMNS = 2
+private const val TITLE_MAX_LINES = 6
+private const val MAX_TAGS_PREVIEW = 3
+private const val SWATCHES_ROW_1_COUNT = 2
+private const val SWATCHES_ROW_2_COUNT = 3
+private const val SWATCHES_ROW_3_START = 5
+private const val SWATCHES_ROW_3_COUNT = 3
+
+data class GridActions(
+    val onNavigateToEditor: (noteId: String) -> Unit,
+    val onNavigateToSearch: () -> Unit,
+    val onTogglePin: (noteId: String, pinned: Boolean) -> Unit,
+    val onSetColor: (noteId: String, color: String?) -> Unit,
+)
+
 @Composable
 fun GridScreen(
     onNavigateToEditor: (noteId: String) -> Unit,
@@ -68,13 +83,19 @@ fun GridScreen(
     viewModel: GridViewModel = hiltViewModel(),
 ) {
     val uiState by viewModel.uiState.collectAsState()
+    val actions =
+        remember(viewModel, onNavigateToEditor, onNavigateToSearch) {
+            GridActions(
+                onNavigateToEditor = onNavigateToEditor,
+                onNavigateToSearch = onNavigateToSearch,
+                onTogglePin = viewModel::setPinned,
+                onSetColor = viewModel::setColor,
+            )
+        }
 
     GridContent(
         uiState = uiState,
-        onNavigateToEditor = onNavigateToEditor,
-        onNavigateToSearch = onNavigateToSearch,
-        onTogglePin = viewModel::setPinned,
-        onSetColor = viewModel::setColor,
+        actions = actions,
         modifier = modifier,
     )
 }
@@ -83,10 +104,7 @@ fun GridScreen(
 @Composable
 fun GridContent(
     uiState: GridUiState,
-    onNavigateToEditor: (noteId: String) -> Unit,
-    onNavigateToSearch: () -> Unit,
-    onTogglePin: (noteId: String, pinned: Boolean) -> Unit,
-    onSetColor: (noteId: String, color: String?) -> Unit,
+    actions: GridActions,
     modifier: Modifier = Modifier,
 ) {
     var noteForColorPicker by remember { mutableStateOf<Note?>(null) }
@@ -95,11 +113,9 @@ fun GridContent(
         modifier = modifier.fillMaxSize(),
         topBar = {
             TopAppBar(
-                title = {
-                    Text(text = stringResource(R.string.app_name))
-                },
+                title = { Text(text = stringResource(R.string.app_name)) },
                 actions = {
-                    IconButton(onClick = onNavigateToSearch) {
+                    IconButton(onClick = actions.onNavigateToSearch) {
                         Icon(
                             imageVector = Icons.Default.Search,
                             contentDescription = stringResource(R.string.nav_search),
@@ -109,9 +125,7 @@ fun GridContent(
             )
         },
         floatingActionButton = {
-            FloatingActionButton(
-                onClick = { onNavigateToEditor("new") },
-            ) {
+            FloatingActionButton(onClick = { actions.onNavigateToEditor("new") }) {
                 Icon(
                     imageVector = Icons.Default.Add,
                     contentDescription = stringResource(R.string.new_note),
@@ -127,62 +141,18 @@ fun GridContent(
         ) {
             when {
                 uiState.loading && uiState.notes.isEmpty() -> {
-                    CircularProgressIndicator(
-                        modifier = Modifier.align(Alignment.Center),
-                    )
+                    CircularProgressIndicator(modifier = Modifier.align(Alignment.Center))
                 }
                 uiState.notes.isEmpty() -> {
-                    EmptyNotesState(
-                        modifier = Modifier.align(Alignment.Center),
-                    )
+                    EmptyNotesState(modifier = Modifier.align(Alignment.Center))
                 }
                 else -> {
-                    val pinnedNotes = remember(uiState.notes) { uiState.notes.filter { it.pinned } }
-                    val otherNotes = remember(uiState.notes) { uiState.notes.filter { !it.pinned } }
-
-                    LazyVerticalStaggeredGrid(
-                        columns = StaggeredGridCells.Fixed(2),
-                        modifier = Modifier.fillMaxSize(),
-                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
-                        verticalItemSpacing = 8.dp,
-                    ) {
-                        if (pinnedNotes.isNotEmpty()) {
-                            item(span = StaggeredGridItemSpan.FullLine) {
-                                SectionHeader(title = stringResource(R.string.section_pinned))
-                            }
-                            items(pinnedNotes, key = { it.id }) { note ->
-                                NoteCard(
-                                    note = note,
-                                    onClick = { onNavigateToEditor(note.id) },
-                                    onLongClick = { noteForColorPicker = note },
-                                    onTogglePin = { onTogglePin(note.id, !note.pinned) },
-                                )
-                            }
-                            if (otherNotes.isNotEmpty()) {
-                                item(span = StaggeredGridItemSpan.FullLine) {
-                                    SectionHeader(title = stringResource(R.string.section_others))
-                                }
-                                items(otherNotes, key = { it.id }) { note ->
-                                    NoteCard(
-                                        note = note,
-                                        onClick = { onNavigateToEditor(note.id) },
-                                        onLongClick = { noteForColorPicker = note },
-                                        onTogglePin = { onTogglePin(note.id, !note.pinned) },
-                                    )
-                                }
-                            }
-                        } else {
-                            items(uiState.notes, key = { it.id }) { note ->
-                                NoteCard(
-                                    note = note,
-                                    onClick = { onNavigateToEditor(note.id) },
-                                    onLongClick = { noteForColorPicker = note },
-                                    onTogglePin = { onTogglePin(note.id, !note.pinned) },
-                                )
-                            }
-                        }
-                    }
+                    NotesGrid(
+                        notes = uiState.notes,
+                        onNoteClick = actions.onNavigateToEditor,
+                        onNoteLongClick = { noteForColorPicker = it },
+                        onTogglePin = { note -> actions.onTogglePin(note.id, !note.pinned) },
+                    )
                 }
             }
         }
@@ -192,13 +162,67 @@ fun GridContent(
         ColorPickerDialog(
             currentColor = note.color,
             onColorSelected = { selectedColor ->
-                onSetColor(note.id, selectedColor)
+                actions.onSetColor(note.id, selectedColor)
                 noteForColorPicker = null
             },
-            onDismissRequest = {
-                noteForColorPicker = null
-            },
+            onDismissRequest = { noteForColorPicker = null },
         )
+    }
+}
+
+@Composable
+private fun NotesGrid(
+    notes: List<Note>,
+    onNoteClick: (String) -> Unit,
+    onNoteLongClick: (Note) -> Unit,
+    onTogglePin: (Note) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val pinnedNotes = remember(notes) { notes.filter { it.pinned } }
+    val otherNotes = remember(notes) { notes.filter { !it.pinned } }
+
+    LazyVerticalStaggeredGrid(
+        columns = StaggeredGridCells.Fixed(GRID_COLUMNS),
+        modifier = modifier.fillMaxSize(),
+        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        verticalItemSpacing = 8.dp,
+    ) {
+        if (pinnedNotes.isNotEmpty()) {
+            item(span = StaggeredGridItemSpan.FullLine) {
+                SectionHeader(title = stringResource(R.string.section_pinned))
+            }
+            items(pinnedNotes, key = { it.id }) { note ->
+                NoteCard(
+                    note = note,
+                    onClick = { onNoteClick(note.id) },
+                    onLongClick = { onNoteLongClick(note) },
+                    onTogglePin = { onTogglePin(note) },
+                )
+            }
+            if (otherNotes.isNotEmpty()) {
+                item(span = StaggeredGridItemSpan.FullLine) {
+                    SectionHeader(title = stringResource(R.string.section_others))
+                }
+                items(otherNotes, key = { it.id }) { note ->
+                    NoteCard(
+                        note = note,
+                        onClick = { onNoteClick(note.id) },
+                        onLongClick = { onNoteLongClick(note) },
+                        onTogglePin = { onTogglePin(note) },
+                    )
+                }
+            }
+        } else {
+            items(notes, key = { it.id }) { note ->
+                NoteCard(
+                    note = note,
+                    onClick = { onNoteClick(note.id) },
+                    onLongClick = { onNoteLongClick(note) },
+                    onTogglePin = { onTogglePin(note) },
+                )
+            }
+        }
     }
 }
 
@@ -250,41 +274,11 @@ private fun NoteCard(
             modifier = Modifier.padding(12.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.Top,
-            ) {
-                Text(
-                    text = note.title.ifBlank { stringResource(R.string.untitled_note) },
-                    style = MaterialTheme.typography.titleMedium,
-                    maxLines = 6,
-                    overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.weight(1f, fill = false),
-                )
-                IconButton(
-                    onClick = onTogglePin,
-                    modifier = Modifier.size(28.dp),
-                ) {
-                    Icon(
-                        painter =
-                            painterResource(
-                                if (note.pinned) R.drawable.ic_pin_filled else R.drawable.ic_pin,
-                            ),
-                        contentDescription =
-                            stringResource(
-                                if (note.pinned) R.string.unpin_note else R.string.pin_note,
-                            ),
-                        modifier = Modifier.size(18.dp),
-                        tint =
-                            if (note.pinned) {
-                                MaterialTheme.colorScheme.primary
-                            } else {
-                                MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
-                            },
-                    )
-                }
-            }
+            NoteCardHeader(
+                title = note.title,
+                pinned = note.pinned,
+                onTogglePin = onTogglePin,
+            )
 
             if (note.folderPath.isNotBlank()) {
                 Text(
@@ -297,24 +291,76 @@ private fun NoteCard(
             }
 
             if (note.tags.isNotEmpty()) {
-                Row(
-                    horizontalArrangement = Arrangement.spacedBy(4.dp),
-                    modifier = Modifier.fillMaxWidth(),
-                ) {
-                    note.tags.take(3).forEach { tag ->
-                        Surface(
-                            shape = RoundedCornerShape(4.dp),
-                            color = MaterialTheme.colorScheme.surface.copy(alpha = 0.5f),
-                        ) {
-                            Text(
-                                text = "#$tag",
-                                style = MaterialTheme.typography.labelSmall,
-                                modifier = Modifier.padding(horizontal = 4.dp, vertical = 2.dp),
-                                maxLines = 1,
-                            )
-                        }
-                    }
-                }
+                NoteCardTags(tags = note.tags)
+            }
+        }
+    }
+}
+
+@Composable
+private fun NoteCardHeader(
+    title: String,
+    pinned: Boolean,
+    onTogglePin: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Row(
+        modifier = modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.Top,
+    ) {
+        Text(
+            text = title.ifBlank { stringResource(R.string.untitled_note) },
+            style = MaterialTheme.typography.titleMedium,
+            maxLines = TITLE_MAX_LINES,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.weight(1f, fill = false),
+        )
+        IconButton(
+            onClick = onTogglePin,
+            modifier = Modifier.size(28.dp),
+        ) {
+            Icon(
+                painter =
+                    painterResource(
+                        if (pinned) R.drawable.ic_pin_filled else R.drawable.ic_pin,
+                    ),
+                contentDescription =
+                    stringResource(
+                        if (pinned) R.string.unpin_note else R.string.pin_note,
+                    ),
+                modifier = Modifier.size(18.dp),
+                tint =
+                    if (pinned) {
+                        MaterialTheme.colorScheme.primary
+                    } else {
+                        MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
+                    },
+            )
+        }
+    }
+}
+
+@Composable
+private fun NoteCardTags(
+    tags: List<String>,
+    modifier: Modifier = Modifier,
+) {
+    Row(
+        horizontalArrangement = Arrangement.spacedBy(4.dp),
+        modifier = modifier.fillMaxWidth(),
+    ) {
+        tags.take(MAX_TAGS_PREVIEW).forEach { tag ->
+            Surface(
+                shape = RoundedCornerShape(4.dp),
+                color = MaterialTheme.colorScheme.surface.copy(alpha = 0.5f),
+            ) {
+                Text(
+                    text = "#$tag",
+                    style = MaterialTheme.typography.labelSmall,
+                    modifier = Modifier.padding(horizontal = 4.dp, vertical = 2.dp),
+                    maxLines = 1,
+                )
             }
         }
     }
@@ -350,7 +396,7 @@ private fun ColorPickerDialog(
                         isSelected = currentColor == null,
                         onClick = { onColorSelected(null) },
                     )
-                    KeepNoteColorSwatches.take(2).forEach { swatch ->
+                    KeepNoteColorSwatches.take(SWATCHES_ROW_1_COUNT).forEach { swatch ->
                         ColorSwatchCircle(
                             color = if (isDark) swatch.darkColor else swatch.lightColor,
                             name = swatch.name,
@@ -365,7 +411,7 @@ private fun ColorPickerDialog(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.SpaceEvenly,
                 ) {
-                    KeepNoteColorSwatches.drop(2).take(3).forEach { swatch ->
+                    KeepNoteColorSwatches.drop(SWATCHES_ROW_1_COUNT).take(SWATCHES_ROW_2_COUNT).forEach { swatch ->
                         ColorSwatchCircle(
                             color = if (isDark) swatch.darkColor else swatch.lightColor,
                             name = swatch.name,
@@ -380,7 +426,7 @@ private fun ColorPickerDialog(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.SpaceEvenly,
                 ) {
-                    KeepNoteColorSwatches.drop(5).take(3).forEach { swatch ->
+                    KeepNoteColorSwatches.drop(SWATCHES_ROW_3_START).take(SWATCHES_ROW_3_COUNT).forEach { swatch ->
                         ColorSwatchCircle(
                             color = if (isDark) swatch.darkColor else swatch.lightColor,
                             name = swatch.name,
@@ -417,8 +463,7 @@ private fun ColorSwatchCircle(
                     width = if (isSelected) 2.5.dp else 1.dp,
                     color = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline,
                     shape = CircleShape,
-                )
-                .clickable(onClick = onClick),
+                ).clickable(onClick = onClick),
         contentAlignment = Alignment.Center,
     ) {
         if (isSelected) {

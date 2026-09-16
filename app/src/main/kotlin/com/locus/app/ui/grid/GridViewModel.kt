@@ -24,11 +24,12 @@ class GridViewModel
         private val repo: NoteRepository,
     ) : ViewModel() {
         val uiState: StateFlow<GridUiState> =
-            repo.observeAllNotes()
+            repo
+                .observeAllNotes()
                 .map { notes -> GridUiState(notes = notes, loading = false) }
                 .stateIn(
                     scope = viewModelScope,
-                    started = SharingStarted.WhileSubscribed(5_000),
+                    started = SharingStarted.WhileSubscribed(STOP_TIMEOUT_MILLIS),
                     initialValue = GridUiState(loading = true),
                 )
 
@@ -48,5 +49,9 @@ class GridViewModel
             viewModelScope.launch {
                 repo.setColor(noteId, color)
             }
+        }
+
+        private companion object {
+            private const val STOP_TIMEOUT_MILLIS = 5_000L
         }
     }
