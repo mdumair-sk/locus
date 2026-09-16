@@ -40,6 +40,7 @@ class EditorViewModel
         private var currentNoteId: String =
             savedStateHandle.get<String>(LocusDestinations.NOTE_ID_ARG).orEmpty()
         private val editMutex = Mutex()
+        private var isCustomTitle: Boolean = false
         private var observeNotesJob: Job? = null
 
         private val _uiState = MutableStateFlow(EditorUiState())
@@ -54,9 +55,11 @@ class EditorViewModel
         fun loadNote(id: String) {
             currentNoteId = id
             if (id.isEmpty() || id == "new") {
+                isCustomTitle = false
                 _uiState.update { it.copy(body = "", title = "") }
                 return
             }
+            isCustomTitle = true
             viewModelScope.launch(dispatchers.io) {
                 val initialBody = runCatching { repo.readBody(id) }.getOrDefault("")
                 _uiState.update { it.copy(body = initialBody) }
@@ -77,33 +80,75 @@ class EditorViewModel
                 }
         }
 
-        fun onBodyChange(newBody: String) {
-            _uiState.update { it.copy(body = newBody) }
+        fun onTitleChange(newTitle: String) {
+            isCustomTitle = true
+            _uiState.update { it.copy(title = newTitle) }
             viewModelScope.launch(dispatchers.io) {
                 editMutex.withLock {
-                    runCatching {
-                        if (currentNoteId == "new" || currentNoteId.isEmpty()) {
-                            val title = deriveTitle(newBody)
-                            val noteType =
-                                if (newBody.contains("- [ ]") || newBody.contains("- [x]")) {
-                                    NoteType.CHECKLIST
-                                } else {
-                                    NoteType.NOTE
-                                }
-                            val created =
-                                repo.createNote(
-                                    folderPath = "",
-                                    title = title,
-                                    type = noteType,
-                                )
-                            currentNoteId = created.id
-                            _uiState.update { it.copy(title = created.title, type = created.type) }
-                            startObservingNote(created.id)
-                            if (newBody.isNotEmpty()) {
-                                repo.edit(created.id, newBody)
+                    if (currentNoteId.isNotEmpty() && currentNoteId != "new") {
+                        repo.setTitle(currentNoteId, newTitle)
+                    } else if (newTitle.isNotBlank()) {
+                        val noteType =
+                            if (_uiState.value.body.contains("- [ ]") ||
+                                _uiState.value.body.contains("- [x]")
+                            ) {
+                                NoteType.CHECKLIST
+                            } else {
+                                NoteType.NOTE
                             }
-                        } else {
-                            repo.edit(currentNoteId, newBody)
+                        val created =
+                            repo.createNote(
+                                folderPath = "",
+                                title = newTitle,
+                                type = noteType,
+                            )
+                        currentNoteId = created.id
+                        startObservingNote(created.id)
+                        if (_uiState.value.body.isNotEmpty()) {
+                            repo.edit(created.id, _uiState.value.body)
+                        }
+                    }
+                }
+            }
+        }
+
+        fun onBodyChange(newBody: String) {
+            val previousTitle = _uiState.value.title
+            val derivedTitle = if (!isCustomTitle) deriveTitle(newBody) else previousTitle
+            _uiState.update { current -> current.copy(body = newBody, title = derivedTitle) }
+            viewModelScope.launch(dispatchers.io) {
+                editMutex.withLock {
+                    if (currentNoteId == "new" || currentNoteId.isEmpty()) {
+                        val titleToUse =
+                            if (isCustomTitle && previousTitle.isNotBlank()) {
+                                previousTitle
+                            } else {
+                                derivedTitle
+                            }
+                        val noteType =
+                            if (newBody.contains("- [ ]") || newBody.contains("- [x]")) {
+                                NoteType.CHECKLIST
+                            } else {
+                                NoteType.NOTE
+                            }
+                        val created =
+                            repo.createNote(
+                                folderPath = "",
+                                title = titleToUse,
+                                type = noteType,
+                            )
+                        currentNoteId = created.id
+                        startObservingNote(created.id)
+                        if (newBody.isNotEmpty()) {
+                            repo.edit(created.id, newBody)
+                        }
+                    } else {
+                        repo.edit(currentNoteId, newBody)
+                        if (!isCustomTitle &&
+                            derivedTitle != previousTitle &&
+                            derivedTitle != "Untitled"
+                        ) {
+                            repo.setTitle(currentNoteId, derivedTitle)
                         }
                     }
                 }

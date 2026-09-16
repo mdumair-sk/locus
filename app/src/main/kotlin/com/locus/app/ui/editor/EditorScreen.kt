@@ -81,9 +81,9 @@ fun EditorScreen(
             onNavigateBack = onNavigateBack,
             onTogglePreview = { viewModel.togglePreview() },
             onBodyChange = { viewModel.onBodyChange(it) },
+            onTitleChange = { viewModel.onTitleChange(it) },
             onDeleteNote = { viewModel.deleteNote(onDeleted = onNavigateBack) },
         )
-
     EditorContent(
         uiState = uiState,
         actions = actions,
@@ -95,6 +95,7 @@ private data class EditorActions(
     val onNavigateBack: () -> Unit,
     val onTogglePreview: () -> Unit,
     val onBodyChange: (String) -> Unit,
+    val onTitleChange: (String) -> Unit,
     val onDeleteNote: () -> Unit,
 )
 
@@ -129,17 +130,30 @@ private fun EditorContent(
             modifier = Modifier.fillMaxSize().padding(paddingValues),
         ) {
             if (uiState.isPreview) {
-                MarkdownPreview(
-                    body = uiState.body,
-                    onCheckboxToggle = { lineIndex ->
-                        val updated = toggleCheckboxAtLine(uiState.body, lineIndex)
-                        textFieldValue = textFieldValue.copy(text = updated)
-                        actions.onBodyChange(updated)
-                    },
-                    modifier = Modifier.fillMaxSize(),
-                )
+                Column(modifier = Modifier.fillMaxSize()) {
+                    if (uiState.title.isNotBlank()) {
+                        Text(
+                            text = uiState.title,
+                            style = MaterialTheme.typography.headlineMedium,
+                            fontWeight = FontWeight.Bold,
+                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
+                        )
+                        HorizontalDivider()
+                    }
+                    MarkdownPreview(
+                        body = uiState.body,
+                        onCheckboxToggle = { lineIndex ->
+                            val updated = toggleCheckboxAtLine(uiState.body, lineIndex)
+                            textFieldValue = textFieldValue.copy(text = updated)
+                            actions.onBodyChange(updated)
+                        },
+                        modifier = Modifier.fillMaxSize(),
+                    )
+                }
             } else {
                 SourceEditorColumn(
+                    title = uiState.title,
+                    onTitleChange = actions.onTitleChange,
                     textFieldValue = textFieldValue,
                     onValueChange = { newValue ->
                         textFieldValue = newValue
@@ -200,11 +214,18 @@ private fun EditorTopBar(
 
 @Composable
 private fun SourceEditorColumn(
+    title: String,
+    onTitleChange: (String) -> Unit,
     textFieldValue: TextFieldValue,
     onValueChange: (TextFieldValue) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     Column(modifier = modifier.fillMaxSize()) {
+        TitleInputField(
+            title = title,
+            onTitleChange = onTitleChange,
+        )
+        HorizontalDivider()
         FormattingToolbar(
             actions =
                 EditorToolbarActions(
@@ -220,6 +241,38 @@ private fun SourceEditorColumn(
             textFieldValue = textFieldValue,
             onValueChange = onValueChange,
             modifier = Modifier.weight(1f),
+        )
+    }
+}
+
+@Composable
+private fun TitleInputField(
+    title: String,
+    onTitleChange: (String) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Box(
+        modifier = modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp),
+    ) {
+        if (title.isEmpty()) {
+            Text(
+                text = stringResource(R.string.note_title_placeholder),
+                style = MaterialTheme.typography.titleLarge,
+                fontWeight = FontWeight.Bold,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+        BasicTextField(
+            value = title,
+            onValueChange = onTitleChange,
+            singleLine = true,
+            textStyle =
+                MaterialTheme.typography.titleLarge.copy(
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.onSurface,
+                ),
+            cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
+            modifier = Modifier.fillMaxWidth(),
         )
     }
 }

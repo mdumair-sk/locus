@@ -39,6 +39,7 @@
     <string name="editor_format_list">List</string>
     <string name="editor_format_checkbox">Checkbox</string>
     <string name="editor_placeholder">Start typing…</string>
+    <string name="note_title_placeholder">Title</string>
     <string name="trash_empty">Trash is empty</string>
     <string name="restore_note">Restore</string>
     <string name="delete_note">Delete</string>

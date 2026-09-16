@@ -797,4 +797,47 @@ class SafNoteRepositoryTest {
             val resolvedFile = workDir.children.firstOrNull { it.name == "Summary (2).md" }
             assertTrue(resolvedFile != null)
         }
+
+    @Test
+    fun setTitle_updatesFrontmatterAndRenamesFile() =
+        runTest {
+            val root = TestDocumentFile(parent = null, docName = "Notes", isDir = true)
+            val workDir = TestDocumentFile(parent = root, docName = "Work", isDir = true)
+            root.children.add(workDir)
+
+            val noteId = "0191ebc2-0000-7000-8000-000000000077"
+            val rawNote =
+                """
+                ---
+                id: $noteId
+                title: Old Title
+                type: note
+                ---
+                Some content.
+                """.trimIndent()
+            val noteFile =
+                TestDocumentFile(
+                    parent = workDir,
+                    docName = "Old Title.md",
+                    isDir = false,
+                    content = rawNote,
+                )
+            workDir.children.add(noteFile)
+
+            val repository = createRepository(root)
+
+            repository.setTitle(noteId, "New Title")
+
+            val notes = repository.observeAllNotes().first()
+            assertEquals(1, notes.size)
+            assertEquals("New Title", notes[0].title)
+
+            // Verify disk file was renamed
+            val renamedDoc = workDir.children.firstOrNull { it.name == "New Title.md" }
+            assertTrue(renamedDoc != null)
+
+            // Verify body content still intact
+            val body = repository.readBody(noteId)
+            assertEquals("Some content.", body.trim())
+        }
 }

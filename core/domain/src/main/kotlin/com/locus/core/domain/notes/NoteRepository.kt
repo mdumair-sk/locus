@@ -43,6 +43,11 @@ interface NoteRepository {
         color: String?,
     )
 
+    suspend fun setTitle(
+        noteId: String,
+        newTitle: String,
+    ) {}
+
     suspend fun rescan(): RescanReport
 
     suspend fun forceFlush(

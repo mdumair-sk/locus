@@ -180,6 +180,47 @@ class EditorViewModelTest {
             assertTrue(callbackInvoked)
         }
 
+    @Test
+    fun onTitleChange_updatesTitleAndDelegatesToRepository() =
+        runTest {
+            viewModel.loadNote("existing-note")
+            viewModel.onTitleChange("Manual New Title")
+            testDispatcher.scheduler.advanceUntilIdle()
+
+            assertEquals("Manual New Title", viewModel.uiState.value.title)
+            assertEquals("existing-note", fakeRepo.lastTitleNoteId)
+            assertEquals("Manual New Title", fakeRepo.lastTitle)
+        }
+
+    @Test
+    fun onBodyChange_whenTitleNotCustom_updatesDerivedTitle() =
+        runTest {
+            viewModel.loadNote("new")
+            viewModel.onBodyChange("t")
+            testDispatcher.scheduler.advanceUntilIdle()
+            assertEquals("t", viewModel.uiState.value.title)
+
+            // Continue typing title line
+            viewModel.onBodyChange("this is my title\nSecond line")
+            testDispatcher.scheduler.advanceUntilIdle()
+            assertEquals("this is my title", viewModel.uiState.value.title)
+            assertEquals("created-note-1", fakeRepo.lastTitleNoteId)
+            assertEquals("this is my title", fakeRepo.lastTitle)
+        }
+
+    @Test
+    fun onBodyChange_whenTitleCustom_doesNotOverwriteManualTitle() =
+        runTest {
+            viewModel.loadNote("new")
+            viewModel.onTitleChange("Custom Explicit Title")
+            testDispatcher.scheduler.advanceUntilIdle()
+
+            viewModel.onBodyChange("Something totally different in body")
+            testDispatcher.scheduler.advanceUntilIdle()
+
+            assertEquals("Custom Explicit Title", viewModel.uiState.value.title)
+        }
+
     private class TestDispatcherProvider(
         private val dispatcher: CoroutineDispatcher,
     ) : DispatcherProvider {
@@ -203,6 +244,16 @@ class EditorViewModelTest {
         var lastFlushTrigger: FlushTrigger? = null
 
         var lastDeletedId: String? = null
+        var lastTitleNoteId: String? = null
+        var lastTitle: String? = null
+
+        override suspend fun setTitle(
+            noteId: String,
+            newTitle: String,
+        ) {
+            lastTitleNoteId = noteId
+            lastTitle = newTitle
+        }
 
         fun emitNotes(notes: List<Note>) {
             notesFlow.value = notes

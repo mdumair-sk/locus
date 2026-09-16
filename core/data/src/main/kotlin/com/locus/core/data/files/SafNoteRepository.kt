@@ -44,7 +44,7 @@ class SafNoteRepository
     constructor(
         private val fileSource: SafNoteFileSource,
         private val parser: FrontmatterParser,
-        private val treeUriStore: TreeUriStore,
+        internal val treeUriStore: TreeUriStore,
         private val coordinator: NoteFlushCoordinator,
         private val noteDao: NoteDao,
         private val trashManager: TrashManager,
@@ -123,8 +123,6 @@ class SafNoteRepository
                 refresh()
                 rescan()
             }
-
-        private suspend fun getEffectiveTreeUri(): Uri? = overrideTreeUri ?: treeUriStore.getTreeUri()
 
         override fun observeAllNotes(): Flow<List<Note>> = combine(refreshTrigger, treeUriStore.treeUriFlow) { _, _ -> loadAllNotes() }
 
@@ -421,6 +419,62 @@ class SafNoteRepository
             }
         }
 
+        override suspend fun setTitle(
+            noteId: String,
+            newTitle: String,
+        ): Unit =
+            withContext(Dispatchers.IO) {
+                val treeUri = getEffectiveTreeUri() ?: return@withContext
+                val root = fileSource.getRootDocument(treeUri) ?: return@withContext
+
+                var doc = noteIdToDoc[noteId]
+                if (doc == null) {
+                    loadAllNotes()
+                    doc = noteIdToDoc[noteId]
+                }
+                if (doc == null) return@withContext
+
+                val rawText = fileSource.readText(doc)
+                val parsed = parseDocument(doc, parser, rawText)
+                val trimmedTitle = newTitle.trim().ifEmpty { "Untitled" }
+                if (parsed.title == trimmedTitle) return@withContext
+
+                val folderPath = computeFolderPathInternal(doc, root)
+                val safeFileName = sanitizeFileName(trimmedTitle)
+                val resolvedTitle =
+                    resolveUniqueTitle(
+                        fileSource = fileSource,
+                        treeUri = treeUri,
+                        root = root,
+                        normalizedFolder = folderPath,
+                        desiredTitle = safeFileName,
+                    )
+                val targetFileName = "$resolvedTitle$MD_EXTENSION"
+
+                val updatedDoc =
+                    if (doc.name != targetFileName) {
+                        fileSource.renameDocument(doc, targetFileName)
+                    } else {
+                        doc
+                    }
+                noteIdToDoc[noteId] = updatedDoc
+                val updatedNote =
+                    parsed.copy(
+                        title = trimmedTitle,
+                        modified = clock.now(),
+                    )
+                val renderedContent = parser.render(updatedNote)
+                fileSource.writeText(updatedDoc, renderedContent)
+                val path = updatedDoc.uri.toString()
+                coordinator.onEdit(noteId, path, renderedContent)
+                val receipt = coordinator.forceFlush(noteId, FlushTrigger.EDITOR_CLOSE)?.getOrNull()
+
+                val checksum = receipt?.checksum ?: Checksum.sha256(renderedContent)
+                val entity = updatedNote.toIndexEntity(folderPath, checksum)
+                noteDao.upsert(entity)
+                refresh()
+            }
+
         override suspend fun rescan(): RescanReport =
             withContext(Dispatchers.IO) {
                 val treeUri = getEffectiveTreeUri() ?: return@withContext RescanReport(0, 0, 0)
@@ -647,6 +701,8 @@ internal fun isExcludedPath(path: String): Boolean {
 
 private fun normalizeFolderPath(path: String): String = path.trim().trim('/')
 
+private suspend fun SafNoteRepository.getEffectiveTreeUri(): Uri? = overrideTreeUri ?: treeUriStore.getTreeUri()
+
 internal fun SafNoteRepository.computeFolderPath(
     doc: DocumentFile,
     root: DocumentFile?,
@@ -655,3 +711,5 @@ internal fun SafNoteRepository.computeFolderPath(
 private const val MD_EXTENSION = ".md"
 private const val MD_EXTENSION_LENGTH = 3
 private const val BODY_PREVIEW_LENGTH = 200
+
+private fun sanitizeFileName(name: String): String = name.replace("[\\\\/:*?\"<>|]".toRegex(), " ").trim().ifEmpty { "Untitled" }
