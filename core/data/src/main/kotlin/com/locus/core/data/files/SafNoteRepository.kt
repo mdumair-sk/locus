@@ -124,7 +124,10 @@ class SafNoteRepository
                 rescan()
             }
 
-        override fun observeAllNotes(): Flow<List<Note>> = combine(refreshTrigger, treeUriStore.treeUriFlow) { _, _ -> loadAllNotes() }
+        override fun observeAllNotes(): Flow<List<Note>> {
+            val flow = combine(refreshTrigger, treeUriStore.treeUriFlow) { _, _ -> loadAllNotes() }
+            return flow
+        }
 
         override fun observeNotesInFolder(folderPath: String): Flow<List<Note>> {
             val normalizedTarget = normalizeFolderPath(folderPath)
@@ -712,4 +715,7 @@ private const val MD_EXTENSION = ".md"
 private const val MD_EXTENSION_LENGTH = 3
 private const val BODY_PREVIEW_LENGTH = 200
 
-private fun sanitizeFileName(name: String): String = name.replace("[\\\\/:*?\"<>|]".toRegex(), " ").trim().ifEmpty { "Untitled" }
+private fun sanitizeFileName(name: String): String {
+    val sanitized = name.replace("[\\\\/:*?\"<>|]".toRegex(), " ").trim()
+    return sanitized.ifEmpty { "Untitled" }
+}

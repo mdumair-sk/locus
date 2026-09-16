@@ -42,7 +42,6 @@ import androidx.compose.ui.text.TextLayoutResult
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.TextFieldValue
-import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.Lifecycle
@@ -117,7 +116,6 @@ private fun EditorContent(
     Scaffold(
         topBar = {
             EditorTopBar(
-                title = uiState.title,
                 isPreview = uiState.isPreview,
                 onNavigateBack = actions.onNavigateBack,
                 onTogglePreview = actions.onTogglePreview,
@@ -168,20 +166,13 @@ private fun EditorContent(
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun EditorTopBar(
-    title: String,
     isPreview: Boolean,
     onNavigateBack: () -> Unit,
     onTogglePreview: () -> Unit,
     onDeleteNote: () -> Unit,
 ) {
     TopAppBar(
-        title = {
-            Text(
-                text = title.ifBlank { stringResource(R.string.untitled_note) },
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
-        },
+        title = {},
         navigationIcon = {
             IconButton(onClick = onNavigateBack) {
                 Icon(
