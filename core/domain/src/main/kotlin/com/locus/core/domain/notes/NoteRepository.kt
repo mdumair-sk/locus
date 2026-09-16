@@ -17,6 +17,11 @@ interface NoteRepository {
 
     suspend fun listFolders(): List<String>
 
+    suspend fun createFolder(
+        parentPath: String,
+        name: String,
+    )
+
     suspend fun createNote(
         folderPath: String,
         title: String,

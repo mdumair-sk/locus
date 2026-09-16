@@ -144,6 +144,32 @@ class SafNoteRepository
                 fileSource.listFolders(treeUri)
             }
 
+        override suspend fun createFolder(
+            parentPath: String,
+            name: String,
+        ): Unit =
+            withContext(Dispatchers.IO) {
+                val trimmedName = name.trim()
+                require(trimmedName.isNotEmpty()) { "Folder name cannot be empty" }
+                require(!trimmedName.contains('/') && !trimmedName.contains('\\')) {
+                    "Folder name cannot contain path separators"
+                }
+                val treeUri =
+                    getEffectiveTreeUri()
+                        ?: error("No tree URI configured; cannot create folder")
+                val root =
+                    fileSource.getRootDocument(treeUri)
+                        ?: throw IOException("Cannot load root document for $treeUri")
+
+                val parentDoc = resolveOrCreateDirectory(root, parentPath)
+                val existing = parentDoc.listFiles().firstOrNull { it.isDirectory && it.name == trimmedName }
+                if (existing == null) {
+                    parentDoc.createDirectory(trimmedName)
+                        ?: throw IOException("Failed to create directory '$trimmedName' in '$parentPath'")
+                }
+                refresh()
+            }
+
         override suspend fun createNote(
             folderPath: String,
             title: String,
@@ -390,8 +416,6 @@ class SafNoteRepository
             return segments.joinToString("/")
         }
 
-        private fun normalizeFolderPath(path: String): String = path.trim().trim('/')
-
         private suspend fun resolveUniqueTitle(
             treeUri: Uri,
             root: DocumentFile,
@@ -517,3 +541,23 @@ class SafNoteRepository
                 }
         }
     }
+
+private fun resolveOrCreateDirectory(
+    root: DocumentFile,
+    path: String,
+): DocumentFile {
+    val normalized = normalizeFolderPath(path)
+    if (normalized.isEmpty()) return root
+    val segments = normalized.split('/').filter { it.isNotBlank() }
+    var current: DocumentFile = root
+    for (seg in segments) {
+        val next =
+            current.listFiles().firstOrNull { it.isDirectory && it.name == seg }
+                ?: current.createDirectory(seg)
+                ?: throw IOException("Failed to create intermediate directory '$seg' in '$path'")
+        current = next
+    }
+    return current
+}
+
+private fun normalizeFolderPath(path: String): String = path.trim().trim('/')

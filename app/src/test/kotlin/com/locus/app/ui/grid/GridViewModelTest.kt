@@ -144,6 +144,11 @@ class GridViewModelTest {
 
         override suspend fun listFolders(): List<String> = emptyList()
 
+        override suspend fun createFolder(
+            parentPath: String,
+            name: String,
+        ) = Unit
+
         override suspend fun createNote(
             folderPath: String,
             title: String,

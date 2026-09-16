@@ -18,4 +18,17 @@
     <string name="pin_note">Pin note</string>
     <string name="unpin_note">Unpin note</string>
     <string name="untitled_note">Untitled</string>
+    <string name="folders_title">Folders</string>
+    <string name="create_folder">New folder</string>
+    <string name="folder_name_label">Folder name</string>
+    <string name="folder_create_button">Create</string>
+    <string name="folder_cancel_button">Cancel</string>
+    <string name="folder_empty_notes">No notes in this folder</string>
+    <string name="add_subfolder">Add subfolder</string>
+    <string name="notes_in_folder">Notes in %1$s</string>
+    <string name="folder_root_name">Notes</string>
+    <string name="folder_name_error_empty">Folder name cannot be empty</string>
+    <string name="folder_name_error_separator">Folder name cannot contain / or \\</string>
+    <string name="expand_folder">Expand folder</string>
+    <string name="collapse_folder">Collapse folder</string>
 </resources>

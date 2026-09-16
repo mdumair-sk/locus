@@ -479,4 +479,108 @@ class SafNoteRepositoryTest {
             assertEquals(1, afterClear.size)
             assertNull(afterClear[0].color)
         }
+
+    private fun createRepository(root: TestDocumentFile): SafNoteRepository {
+        val fileSource = FakeSafNoteFileSource(root)
+        val fileWriter =
+            object : NoteFileWriter {
+                override suspend fun atomicWrite(
+                    noteId: String,
+                    path: String,
+                    content: String,
+                ): Result<FlushReceipt> =
+                    Result.success(
+                        FlushReceipt(
+                            noteId = noteId,
+                            checksum = Checksum.sha256(content),
+                            flushedAt = System.currentTimeMillis(),
+                        ),
+                    )
+            }
+        val dummyQueue =
+            object : IndexUpdateQueue {
+                override suspend fun enqueue(receipt: FlushReceipt) = Unit
+            }
+        val testDispatchers =
+            object : DispatcherProvider {
+                override val io: CoroutineDispatcher = Dispatchers.Unconfined
+                override val default: CoroutineDispatcher = Dispatchers.Unconfined
+                override val main: CoroutineDispatcher = Dispatchers.Unconfined
+                override val mainImmediate: CoroutineDispatcher = Dispatchers.Unconfined
+            }
+        val coordinator =
+            NoteFlushCoordinator(
+                fileWriter = fileWriter,
+                indexQueue = dummyQueue,
+                dispatchers = testDispatchers,
+                scope = CoroutineScope(SupervisorJob() + Dispatchers.Unconfined),
+            )
+        return SafNoteRepository(
+            fileSource = fileSource,
+            parser = parser,
+            coordinator = coordinator,
+            initialTreeUri = treeUri,
+        )
+    }
+
+    @Test
+    fun createFolder_inRoot_createsDirectoryAndRefreshesFlow() =
+        runTest {
+            val root = TestDocumentFile(parent = null, docName = "Notes", isDir = true)
+            val repository = createRepository(root)
+
+            repository.createFolder(parentPath = "", name = "Work")
+
+            val folders = repository.listFolders()
+            assertEquals(listOf("Work"), folders)
+            val createdChild = root.listFiles().firstOrNull { it.name == "Work" }
+            assertTrue(createdChild != null && createdChild.isDirectory)
+        }
+
+    @Test
+    fun createFolder_inSubfolder_resolvesParentAndCreatesSubdirectory() =
+        runTest {
+            val root = TestDocumentFile(parent = null, docName = "Notes", isDir = true)
+            val repository = createRepository(root)
+
+            repository.createFolder(parentPath = "", name = "Work")
+            repository.createFolder(parentPath = "Work", name = "Projects")
+
+            val folders = repository.listFolders()
+            assertEquals(listOf("Work", "Work/Projects"), folders)
+        }
+
+    @Test(expected = IllegalArgumentException::class)
+    fun createFolder_emptyName_throwsIllegalArgumentException() =
+        runTest {
+            val root = TestDocumentFile(parent = null, docName = "Notes", isDir = true)
+            val repository = createRepository(root)
+
+            repository.createFolder(parentPath = "", name = "   ")
+        }
+
+    @Test(expected = IllegalArgumentException::class)
+    fun createFolder_nameWithSeparator_throwsIllegalArgumentException() =
+        runTest {
+            val root = TestDocumentFile(parent = null, docName = "Notes", isDir = true)
+            val repository = createRepository(root)
+
+            repository.createFolder(parentPath = "", name = "sub/dir")
+        }
+
+    @Test
+    fun listFolders_reflectsExternallyCreatedFolders() =
+        runTest {
+            val root = TestDocumentFile(parent = null, docName = "Notes", isDir = true)
+            val repository = createRepository(root)
+
+            assertEquals(emptyList<String>(), repository.listFolders())
+
+            // Simulate external file system creation in SAF
+            val externalDir = root.createDirectory("ExternalFolder")
+            externalDir?.createDirectory("Nested")
+
+            val folders = repository.listFolders()
+            assertEquals(listOf("ExternalFolder", "ExternalFolder/Nested"), folders)
+        }
 }
