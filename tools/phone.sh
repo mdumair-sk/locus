@@ -8,6 +8,10 @@ FLAVOR="${2:-oss}"
 
 ensure_adb_tunnel() {
     adb forward tcp:${PORT} tcp:8022 2>/dev/null || true
+    if ! adb shell "pidof sshd" >/dev/null 2>&1; then
+        adb shell am start -n com.termux/.app.TermuxActivity >/dev/null 2>&1 || true
+        sleep 1
+    fi
 }
 
 run_ssh() {
