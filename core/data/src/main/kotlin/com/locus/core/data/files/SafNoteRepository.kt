@@ -151,25 +151,14 @@ class SafNoteRepository
             withContext(Dispatchers.IO) {
                 val treeUri =
                     getEffectiveTreeUri()
-                        ?: throw IllegalStateException("No tree URI configured; cannot create note")
+                        ?: error("No tree URI configured; cannot create note")
                 val root =
                     fileSource.getRootDocument(treeUri)
                         ?: throw java.io.IOException("Cannot load root document for $treeUri")
 
                 val normalizedFolder = normalizeFolderPath(folderPath)
-                val allFiles = fileSource.listMarkdownFiles(treeUri)
-                val folderFiles =
-                    allFiles.filter {
-                        normalizeFolderPath(computeFolderPath(it, root)) == normalizedFolder
-                    }
-                val existingTitles =
-                    folderFiles
-                        .mapNotNull { doc ->
-                            doc.name?.let { if (it.endsWith(".md", ignoreCase = true)) it.dropLast(3) else it }
-                        }.toSet()
-
-                val resolvedTitle = FilenameCollisionResolver.resolve(title, existingTitles)
-                val fileName = "$resolvedTitle.md"
+                val resolvedTitle = resolveUniqueTitle(treeUri, root, normalizedFolder, title)
+                val fileName = "$resolvedTitle$MD_EXTENSION"
                 val relativePath = if (normalizedFolder.isEmpty()) fileName else "$normalizedFolder/$fileName"
 
                 val id = UuidV7.generate(clock)
@@ -204,27 +193,13 @@ class SafNoteRepository
                         ?: throw java.io.IOException("Failed to flush new note $id ($fileName)")
 
                 val fileChecksum = receipt.checksum
-
-                val entity =
-                    NoteIndexEntity(
-                        id = id,
-                        title = resolvedTitle,
-                        type = type,
-                        folderPath = normalizedFolder,
-                        pinned = false,
-                        color = null,
-                        tags = emptyList(),
-                        created = now,
-                        modified = now,
-                        checksum = fileChecksum,
-                        bodyPreview = "",
-                    )
+                val entity = parsedNote.toIndexEntity(normalizedFolder, fileChecksum)
                 noteDao.upsert(entity)
-
                 val updatedFiles = fileSource.listMarkdownFiles(treeUri)
                 val createdDoc =
                     updatedFiles.firstOrNull { doc ->
-                        doc.name == fileName && normalizeFolderPath(computeFolderPath(doc, root)) == normalizedFolder
+                        doc.name == fileName &&
+                            normalizeFolderPath(computeFolderPath(doc, root)) == normalizedFolder
                     }
                 if (createdDoc != null) {
                     noteIdToDoc[id] = createdDoc
@@ -249,20 +224,7 @@ class SafNoteRepository
                 }
 
                 val rawText = fileSource.readText(doc)
-                val lastModifiedMs = doc.lastModified()
-                val modifiedInstant =
-                    if (lastModifiedMs > 0) {
-                        Instant.ofEpochMilli(lastModifiedMs)
-                    } else {
-                        Instant.now()
-                    }
-                val fallback =
-                    FileFallbackMetadata(
-                        fileCreated = modifiedInstant,
-                        fileModified = modifiedInstant,
-                        appVersion = "Locus 1.0.0",
-                    )
-                val parsed = parser.parse(rawText, fallback)
+                val parsed = parseDocument(doc, rawText)
                 val updatedNote =
                     parsed.copy(
                         body = newBody,
@@ -290,68 +252,22 @@ class SafNoteRepository
 
                 for (file in files) {
                     val rawText = runCatching { fileSource.readText(file) }.getOrNull() ?: continue
-                    val fileChecksum = Checksum.sha256(rawText)
+                    val parsed = parseDocument(file, rawText)
+                    if (seenIds.add(parsed.id)) {
+                        val fileChecksum = Checksum.sha256(rawText)
+                        noteIdToDoc[parsed.id] = file
+                        val folderPath = computeFolderPath(file, root)
+                        val existing = dbEntitiesById[parsed.id]
 
-                    val lastModifiedMs = file.lastModified()
-                    val modifiedInstant =
-                        if (lastModifiedMs > 0) {
-                            Instant.ofEpochMilli(lastModifiedMs)
-                        } else {
-                            Instant.now()
+                        if (existing == null) {
+                            added++
+                            noteDao.upsert(parsed.toIndexEntity(folderPath, fileChecksum))
+                        } else if (existing.checksum != fileChecksum) {
+                            changed++
+                            noteDao.upsert(parsed.toIndexEntity(folderPath, fileChecksum))
+                        } else if (existing.folderPath != folderPath) {
+                            noteDao.upsert(existing.copy(folderPath = folderPath))
                         }
-                    val fallback =
-                        FileFallbackMetadata(
-                            fileCreated = modifiedInstant,
-                            fileModified = modifiedInstant,
-                            appVersion = "Locus 1.0.0",
-                        )
-                    val parsed = parser.parse(rawText, fallback)
-                    val noteId = parsed.id
-
-                    if (!seenIds.add(noteId)) {
-                        continue
-                    }
-
-                    noteIdToDoc[noteId] = file
-                    val folderPath = computeFolderPath(file, root)
-                    val existing = dbEntitiesById[noteId]
-
-                    if (existing == null) {
-                        added++
-                        val entity =
-                            NoteIndexEntity(
-                                id = parsed.id,
-                                title = parsed.title,
-                                type = parsed.type,
-                                folderPath = folderPath,
-                                pinned = parsed.pinned,
-                                color = parsed.color,
-                                tags = parsed.tags,
-                                created = parsed.created,
-                                modified = parsed.modified,
-                                checksum = fileChecksum,
-                                bodyPreview = parsed.body.take(200),
-                            )
-                        noteDao.upsert(entity)
-                    } else if (existing.checksum != fileChecksum) {
-                        changed++
-                        val entity =
-                            NoteIndexEntity(
-                                id = parsed.id,
-                                title = parsed.title,
-                                type = parsed.type,
-                                folderPath = folderPath,
-                                pinned = parsed.pinned,
-                                color = parsed.color,
-                                tags = parsed.tags,
-                                created = parsed.created,
-                                modified = parsed.modified,
-                                checksum = fileChecksum,
-                                bodyPreview = parsed.body.take(200),
-                            )
-                        noteDao.upsert(entity)
-                    } else if (existing.folderPath != folderPath) {
-                        noteDao.upsert(existing.copy(folderPath = folderPath))
                     }
                 }
 
@@ -375,20 +291,7 @@ class SafNoteRepository
 
                 for (file in files) {
                     val rawText = runCatching { fileSource.readText(file) }.getOrNull() ?: continue
-                    val lastModifiedMs = file.lastModified()
-                    val modifiedInstant =
-                        if (lastModifiedMs > 0) {
-                            Instant.ofEpochMilli(lastModifiedMs)
-                        } else {
-                            Instant.now()
-                        }
-                    val fallback =
-                        FileFallbackMetadata(
-                            fileCreated = modifiedInstant,
-                            fileModified = modifiedInstant,
-                            appVersion = "Locus 1.0.0",
-                        )
-                    val parsed = parser.parse(rawText, fallback)
+                    val parsed = parseDocument(file, rawText)
                     val folderPath = computeFolderPath(file, root)
                     val note = parsed.toDomain(folderPath)
                     noteIdToDoc[note.id] = file
@@ -415,8 +318,73 @@ class SafNoteRepository
         }
 
         private fun normalizeFolderPath(path: String): String = path.trim().trim('/')
+        private suspend fun resolveUniqueTitle(
+            treeUri: Uri,
+            root: DocumentFile,
+            normalizedFolder: String,
+            desiredTitle: String,
+        ): String {
+            val folderFiles =
+                fileSource.listMarkdownFiles(treeUri).filter {
+                    normalizeFolderPath(computeFolderPath(it, root)) == normalizedFolder
+                }
+            val existingTitles =
+                folderFiles
+                    .mapNotNull { doc ->
+                        doc.name?.let { name ->
+                            if (name.endsWith(MD_EXTENSION, ignoreCase = true)) {
+                                name.dropLast(MD_EXTENSION_LENGTH)
+                            } else {
+                                name
+                            }
+                        }
+                    }.toSet()
+            return FilenameCollisionResolver.resolve(desiredTitle, existingTitles)
+        }
+
+        private fun parseDocument(
+            file: DocumentFile,
+            rawText: String,
+        ): ParsedNote {
+            val lastModifiedMs = file.lastModified()
+            val modifiedInstant =
+                if (lastModifiedMs > 0) {
+                    Instant.ofEpochMilli(lastModifiedMs)
+                } else {
+                    Instant.now()
+                }
+            val fallback =
+                FileFallbackMetadata(
+                    fileCreated = modifiedInstant,
+                    fileModified = modifiedInstant,
+                    appVersion = "Locus 1.0.0",
+                )
+            return parser.parse(rawText, fallback)
+        }
+
+        private fun ParsedNote.toIndexEntity(
+            folderPath: String,
+            checksum: String,
+        ): NoteIndexEntity =
+            NoteIndexEntity(
+                id = id,
+                title = title,
+                type = type,
+                folderPath = folderPath,
+                pinned = pinned,
+                color = color,
+                tags = tags,
+                created = created,
+                modified = modified,
+                checksum = checksum,
+                bodyPreview = body.take(BODY_PREVIEW_LENGTH),
+            )
 
         private companion object {
+            private const val MD_EXTENSION = ".md"
+            private const val MD_EXTENSION_LENGTH = 3
+            private const val BODY_PREVIEW_LENGTH = 200
+
             fun createFallbackCoordinator(): NoteFlushCoordinator {
                 val dummyWriter =
                     object : NoteFileWriter {
@@ -435,7 +403,7 @@ class SafNoteRepository
                     }
                 val dummyQueue =
                     object : IndexUpdateQueue {
-                        override suspend fun enqueue(receipt: FlushReceipt) {}
+                        override suspend fun enqueue(receipt: FlushReceipt) = Unit
                     }
                 val dummyDispatchers =
                     object : DispatcherProvider {

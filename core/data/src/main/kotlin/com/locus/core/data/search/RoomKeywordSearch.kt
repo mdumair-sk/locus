@@ -59,19 +59,11 @@ class RoomKeywordSearch
             entity: NoteIndexEntity,
             scope: SearchScope,
         ): Boolean {
-            if (scope.noteIds.isNotEmpty() && entity.id !in scope.noteIds) {
-                return false
-            }
-            if (scope.folderPaths.isNotEmpty() && !matchesFolder(entity.folderPath, scope.folderPaths)) {
-                return false
-            }
-            if (scope.after != null && entity.modified.isBefore(scope.after)) {
-                return false
-            }
-            if (scope.before != null && entity.modified.isAfter(scope.before)) {
-                return false
-            }
-            return true
+            val matchesNoteIds = scope.noteIds.isEmpty() || entity.id in scope.noteIds
+            val matchesFolder = scope.folderPaths.isEmpty() || matchesFolder(entity.folderPath, scope.folderPaths)
+            val matchesAfter = scope.after == null || !entity.modified.isBefore(scope.after)
+            val matchesBefore = scope.before == null || !entity.modified.isAfter(scope.before)
+            return matchesNoteIds && matchesFolder && matchesAfter && matchesBefore
         }
 
         private fun matchesFolder(

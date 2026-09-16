@@ -1,0 +1,10 @@
+{
+  "servers": {
+    "kotlin-language-server": {
+      "command": "kotlin-language-server",
+      "args": [],
+      "fileTypes": [".kt", ".kts"],
+      "rootMarkers": ["build.gradle", "build.gradle.kts", "settings.gradle", "settings.gradle.kts"]
+    }
+  }
+}

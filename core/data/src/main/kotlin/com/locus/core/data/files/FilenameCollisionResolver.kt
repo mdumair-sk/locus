@@ -5,6 +5,9 @@ package com.locus.core.data.files
  * "Filename collisions within a folder ... are resolved by auto-suffixing (`Title (2).md`, `Title (3).md`, ...)"
  */
 object FilenameCollisionResolver {
+    private const val MD_EXTENSION = ".md"
+    private const val MD_EXTENSION_LENGTH = 3
+
     fun resolve(
         desiredTitle: String,
         existingTitlesInFolder: Set<String>,
@@ -13,10 +16,10 @@ object FilenameCollisionResolver {
             return desiredTitle
         }
 
-        val hasMdExtension = desiredTitle.endsWith(".md", ignoreCase = true)
+        val hasMdExtension = desiredTitle.endsWith(MD_EXTENSION, ignoreCase = true)
         val (base, ext) =
             if (hasMdExtension) {
-                desiredTitle.dropLast(3) to desiredTitle.takeLast(3)
+                desiredTitle.dropLast(MD_EXTENSION_LENGTH) to desiredTitle.takeLast(MD_EXTENSION_LENGTH)
             } else {
                 desiredTitle to ""
             }
