@@ -28,5 +28,15 @@ interface NoteRepository {
         newBody: String,
     )
 
+    suspend fun setPinned(
+        noteId: String,
+        pinned: Boolean,
+    )
+
+    suspend fun setColor(
+        noteId: String,
+        color: String?,
+    )
+
     suspend fun rescan(): RescanReport
 }

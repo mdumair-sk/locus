@@ -31,6 +31,7 @@ import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.withContext
+import java.io.IOException
 import java.time.Instant
 import java.util.concurrent.ConcurrentHashMap
 import javax.inject.Inject
@@ -233,6 +234,78 @@ class SafNoteRepository
                 val updatedContent = parser.render(updatedNote)
                 val path = doc.uri.toString()
                 coordinator.onEdit(noteId, path, updatedContent)
+            }
+        }
+
+        override suspend fun setPinned(
+            noteId: String,
+            pinned: Boolean,
+        ) {
+            withContext(Dispatchers.IO) {
+                var doc = noteIdToDoc[noteId]
+                if (doc == null) {
+                    loadAllNotes()
+                    doc = noteIdToDoc[noteId]
+                }
+                if (doc == null) {
+                    throw NoSuchElementException("Note with id '$noteId' not found")
+                }
+
+                val rawText = fileSource.readText(doc)
+                val parsed = parseDocument(doc, rawText)
+                val updatedNote =
+                    parsed.copy(
+                        pinned = pinned,
+                        modified = clock.now(),
+                    )
+                val updatedContent = parser.render(updatedNote)
+                val path = doc.uri.toString()
+                coordinator.onEdit(noteId, path, updatedContent)
+                val flushResult = coordinator.forceFlush(noteId, FlushTrigger.EDITOR_CLOSE)
+                val receipt = flushResult?.getOrThrow() ?: throw IOException("Failed to flush note $noteId")
+
+                val treeUri = getEffectiveTreeUri() ?: Uri.EMPTY
+                val root = runCatching { fileSource.getRootDocument(treeUri) }.getOrNull()
+                val folderPath = computeFolderPath(doc, root)
+                val entity = updatedNote.toIndexEntity(folderPath, receipt.checksum)
+                noteDao.upsert(entity)
+                refresh()
+            }
+        }
+
+        override suspend fun setColor(
+            noteId: String,
+            color: String?,
+        ) {
+            withContext(Dispatchers.IO) {
+                var doc = noteIdToDoc[noteId]
+                if (doc == null) {
+                    loadAllNotes()
+                    doc = noteIdToDoc[noteId]
+                }
+                if (doc == null) {
+                    throw NoSuchElementException("Note with id '$noteId' not found")
+                }
+
+                val rawText = fileSource.readText(doc)
+                val parsed = parseDocument(doc, rawText)
+                val updatedNote =
+                    parsed.copy(
+                        color = color,
+                        modified = clock.now(),
+                    )
+                val updatedContent = parser.render(updatedNote)
+                val path = doc.uri.toString()
+                coordinator.onEdit(noteId, path, updatedContent)
+                val flushResult = coordinator.forceFlush(noteId, FlushTrigger.EDITOR_CLOSE)
+                val receipt = flushResult?.getOrThrow() ?: throw IOException("Failed to flush note $noteId")
+
+                val treeUri = getEffectiveTreeUri() ?: Uri.EMPTY
+                val root = runCatching { fileSource.getRootDocument(treeUri) }.getOrNull()
+                val folderPath = computeFolderPath(doc, root)
+                val entity = updatedNote.toIndexEntity(folderPath, receipt.checksum)
+                noteDao.upsert(entity)
+                refresh()
             }
         }
 

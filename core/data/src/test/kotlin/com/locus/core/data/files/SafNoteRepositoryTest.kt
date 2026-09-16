@@ -9,6 +9,17 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
+import org.junit.Assert.assertNull
+import com.locus.core.domain.notes.Checksum
+import com.locus.core.domain.notes.FlushReceipt
+import com.locus.core.domain.notes.IndexUpdateQueue
+import com.locus.core.domain.notes.NoteFileWriter
+import com.locus.core.domain.notes.NoteFlushCoordinator
+import com.locus.core.domain.time.DispatcherProvider
+import kotlinx.coroutines.CoroutineDispatcher
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
 import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -279,5 +290,193 @@ class SafNoteRepositoryTest {
 
             val folders = repository.listFolders()
             assertTrue(folders.isEmpty())
+        }
+
+    @Test
+    fun setPinned_updatesFrontmatterAndEmitsNewState() =
+        runTest {
+            val root = TestDocumentFile(parent = null, docName = "Notes", isDir = true)
+            val rawContent =
+                """
+                ---
+                id: 0191ebc2-841e-7b28-b072-46ebc605cf52
+                title: Pin Test Note
+                type: note
+                created: 2026-09-16T10:00:00Z
+                modified: 2026-09-16T10:00:00Z
+                pinned: false
+                ---
+                Some content here.
+                """.trimIndent()
+
+            val noteFile =
+                TestDocumentFile(
+                    parent = root,
+                    docName = "Pin Test Note.md",
+                    isDir = false,
+                    content = rawContent,
+                )
+            root.children.add(noteFile)
+
+            val fileSource = FakeSafNoteFileSource(root)
+            val fileWriter =
+                object : NoteFileWriter {
+                    override suspend fun atomicWrite(
+                        noteId: String,
+                        path: String,
+                        content: String,
+                    ): Result<FlushReceipt> {
+                        noteFile.content = content
+                        return Result.success(
+                            FlushReceipt(
+                                noteId = noteId,
+                                checksum = Checksum.sha256(content),
+                                flushedAt = System.currentTimeMillis(),
+                            ),
+                        )
+                    }
+                }
+            val dummyQueue =
+                object : IndexUpdateQueue {
+                    override suspend fun enqueue(receipt: FlushReceipt) = Unit
+                }
+            val testDispatchers =
+                object : DispatcherProvider {
+                    override val io: CoroutineDispatcher = Dispatchers.Unconfined
+                    override val default: CoroutineDispatcher = Dispatchers.Unconfined
+                    override val main: CoroutineDispatcher = Dispatchers.Unconfined
+                    override val mainImmediate: CoroutineDispatcher = Dispatchers.Unconfined
+                }
+            val coordinator =
+                NoteFlushCoordinator(
+                    fileWriter = fileWriter,
+                    indexQueue = dummyQueue,
+                    dispatchers = testDispatchers,
+                    scope = CoroutineScope(SupervisorJob() + Dispatchers.Unconfined),
+                )
+
+            val repository =
+                SafNoteRepository(
+                    fileSource = fileSource,
+                    parser = parser,
+                    coordinator = coordinator,
+                    initialTreeUri = treeUri,
+                )
+
+            // Initial state: not pinned
+            val initial = repository.observeAllNotes().first()
+            assertEquals(1, initial.size)
+            assertEquals(false, initial[0].pinned)
+
+            // Pin the note
+            repository.setPinned("0191ebc2-841e-7b28-b072-46ebc605cf52", true)
+
+            // Verify file content updated with frontmatter round-trip
+            assertTrue(noteFile.content.contains("pinned: true"))
+
+            // Verify repository flow emits updated state
+            val afterPin = repository.observeAllNotes().first()
+            assertEquals(1, afterPin.size)
+            assertEquals(true, afterPin[0].pinned)
+
+            // Unpin the note
+            repository.setPinned("0191ebc2-841e-7b28-b072-46ebc605cf52", false)
+            assertTrue(noteFile.content.contains("pinned: false"))
+            val afterUnpin = repository.observeAllNotes().first()
+            assertEquals(false, afterUnpin[0].pinned)
+        }
+
+    @Test
+    fun setColor_updatesFrontmatterAndEmitsNewState() =
+        runTest {
+            val root = TestDocumentFile(parent = null, docName = "Notes", isDir = true)
+            val rawContent =
+                """
+                ---
+                id: 0191ebc2-841e-7b28-b072-46ebc605cf52
+                title: Color Test Note
+                type: note
+                created: 2026-09-16T10:00:00Z
+                modified: 2026-09-16T10:00:00Z
+                pinned: false
+                ---
+                Some content here.
+                """.trimIndent()
+
+            val noteFile =
+                TestDocumentFile(
+                    parent = root,
+                    docName = "Color Test Note.md",
+                    isDir = false,
+                    content = rawContent,
+                )
+            root.children.add(noteFile)
+
+            val fileSource = FakeSafNoteFileSource(root)
+            val fileWriter =
+                object : NoteFileWriter {
+                    override suspend fun atomicWrite(
+                        noteId: String,
+                        path: String,
+                        content: String,
+                    ): Result<FlushReceipt> {
+                        noteFile.content = content
+                        return Result.success(
+                            FlushReceipt(
+                                noteId = noteId,
+                                checksum = Checksum.sha256(content),
+                                flushedAt = System.currentTimeMillis(),
+                            ),
+                        )
+                    }
+                }
+            val dummyQueue =
+                object : IndexUpdateQueue {
+                    override suspend fun enqueue(receipt: FlushReceipt) = Unit
+                }
+            val testDispatchers =
+                object : DispatcherProvider {
+                    override val io: CoroutineDispatcher = Dispatchers.Unconfined
+                    override val default: CoroutineDispatcher = Dispatchers.Unconfined
+                    override val main: CoroutineDispatcher = Dispatchers.Unconfined
+                    override val mainImmediate: CoroutineDispatcher = Dispatchers.Unconfined
+                }
+            val coordinator =
+                NoteFlushCoordinator(
+                    fileWriter = fileWriter,
+                    indexQueue = dummyQueue,
+                    dispatchers = testDispatchers,
+                    scope = CoroutineScope(SupervisorJob() + Dispatchers.Unconfined),
+                )
+
+            val repository =
+                SafNoteRepository(
+                    fileSource = fileSource,
+                    parser = parser,
+                    coordinator = coordinator,
+                    initialTreeUri = treeUri,
+                )
+
+            // Initial state: no color
+            val initial = repository.observeAllNotes().first()
+            assertEquals(1, initial.size)
+            assertNull(initial[0].color)
+
+            // Set color to Coral (#F28B82)
+            repository.setColor("0191ebc2-841e-7b28-b072-46ebc605cf52", "#F28B82")
+
+            // Verify file content updated with frontmatter round-trip
+            assertTrue(noteFile.content.contains("#F28B82"))
+
+            // Verify repository flow emits updated state
+            val afterColor = repository.observeAllNotes().first()
+            assertEquals(1, afterColor.size)
+            assertEquals("#F28B82", afterColor[0].color)
+
+            // Clear color (set to null)
+            repository.setColor("0191ebc2-841e-7b28-b072-46ebc605cf52", null)
+            val afterClear = repository.observeAllNotes().first()
+            assertEquals(1, afterClear.size)
+            assertNull(afterClear[0].color)
         }
 }

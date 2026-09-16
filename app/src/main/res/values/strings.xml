@@ -9,4 +9,13 @@
     <string name="nav_editor">Editor</string>
     <string name="new_note">New note</string>
     <string name="back">Back</string>
+    <string name="section_pinned">Pinned</string>
+    <string name="section_others">Others</string>
+    <string name="empty_notes_title">No notes yet</string>
+    <string name="empty_notes_subtitle">Tap + to create your first note</string>
+    <string name="color_picker_title">Note color</string>
+    <string name="color_default">Default</string>
+    <string name="pin_note">Pin note</string>
+    <string name="unpin_note">Unpin note</string>
+    <string name="untitled_note">Untitled</string>
 </resources>

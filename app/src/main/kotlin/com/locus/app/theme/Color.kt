@@ -63,3 +63,59 @@ val md_theme_dark_inversePrimary = Color(0xFF006874)
 val md_theme_dark_surfaceTint = Color(0xFF4FD8EB)
 val md_theme_dark_outlineVariant = Color(0xFF3F484A)
 val md_theme_dark_scrim = Color(0xFF000000)
+
+/**
+ * Canonical 8 Google Keep-style note colors (N-6).
+ *
+ * Exact hex values chosen:
+ * 1. Coral (Red):    #F28B82  (Dark mode: #77172E)
+ * 2. Peach (Orange): #FBBC04  (Dark mode: #692B17)
+ * 3. Sand (Yellow):  #FFF475  (Dark mode: #7C4A03)
+ * 4. Mint (Green):   #CCFF90  (Dark mode: #264D3B)
+ * 5. Sage (Teal):    #A7FFEB  (Dark mode: #0C625D)
+ * 6. Fog (Blue):     #CBF0F8  (Dark mode: #256377)
+ * 7. Dusk (Purple):  #D7AEFB  (Dark mode: #472E5B)
+ * 8. Blossom (Pink): #FDCFE8  (Dark mode: #5C2B47)
+ */
+data class NoteColorSwatch(
+    val name: String,
+    val hex: String,
+    val lightColor: Color,
+    val darkColor: Color,
+)
+
+val KeepNoteColorSwatches: List<NoteColorSwatch> =
+    listOf(
+        NoteColorSwatch("Coral", "#F28B82", Color(0xFFF28B82), Color(0xFF77172E)),
+        NoteColorSwatch("Peach", "#FBBC04", Color(0xFFFBBC04), Color(0xFF692B17)),
+        NoteColorSwatch("Sand", "#FFF475", Color(0xFFFFF475), Color(0xFF7C4A03)),
+        NoteColorSwatch("Mint", "#CCFF90", Color(0xFFCCFF90), Color(0xFF264D3B)),
+        NoteColorSwatch("Sage", "#A7FFEB", Color(0xFFA7FFEB), Color(0xFF0C625D)),
+        NoteColorSwatch("Fog", "#CBF0F8", Color(0xFFCBF0F8), Color(0xFF256377)),
+        NoteColorSwatch("Dusk", "#D7AEFB", Color(0xFFD7AEFB), Color(0xFF472E5B)),
+        NoteColorSwatch("Blossom", "#FDCFE8", Color(0xFFFDCFE8), Color(0xFF5C2B47)),
+    )
+
+fun parseHexColor(hex: String): Color? =
+    runCatching {
+        val cleanHex = hex.removePrefix("#")
+        val colorInt =
+            when (cleanHex.length) {
+                6 -> 0xFF000000.toInt() or cleanHex.toLong(16).toInt()
+                8 -> cleanHex.toLong(16).toInt()
+                else -> return null
+            }
+        Color(colorInt)
+    }.getOrNull()
+
+fun resolveNoteColor(
+    colorHex: String?,
+    isDark: Boolean,
+): Color? {
+    if (colorHex.isNullOrBlank()) return null
+    val swatch = KeepNoteColorSwatches.firstOrNull { it.hex.equals(colorHex, ignoreCase = true) }
+    if (swatch != null) {
+        return if (isDark) swatch.darkColor else swatch.lightColor
+    }
+    return parseHexColor(colorHex)
+}
