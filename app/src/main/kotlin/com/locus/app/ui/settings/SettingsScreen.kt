@@ -286,7 +286,9 @@ private fun NotesFolderCard(
                 style = MaterialTheme.typography.titleMedium,
             )
             Text(
-                text = rootUri ?: stringResource(R.string.no_folder_selected),
+                text =
+                    PathFormatter.formatDisplayPath(rootUri)
+                        ?: stringResource(R.string.no_folder_selected),
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
@@ -345,7 +347,7 @@ private fun BackupDestinationSection(
         )
         Text(
             text =
-                backupDestinationUri
+                PathFormatter.formatDisplayPath(backupDestinationUri)
                     ?: stringResource(R.string.settings_backup_no_destination),
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
