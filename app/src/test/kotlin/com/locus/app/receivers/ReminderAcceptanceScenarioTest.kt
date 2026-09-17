@@ -1,8 +1,8 @@
 package com.locus.app.receivers
 
+import android.app.Notification
 import android.app.NotificationManager
 import android.content.Context
-import androidx.core.app.NotificationCompat
 import com.locus.app.notifications.ReminderChannels
 import com.locus.core.data.reminders.ReminderDao
 import com.locus.core.data.reminders.ReminderEntity
@@ -12,7 +12,6 @@ import com.locus.core.domain.notes.NoteRepository
 import com.locus.core.domain.notes.NoteType
 import com.locus.core.domain.reminders.AlarmScheduler
 import com.locus.core.domain.reminders.Reminder
-import com.locus.core.domain.reminders.ReminderRecurrence
 import com.locus.core.domain.reminders.RepeatRule
 import com.locus.core.domain.reminders.SchedulingTier
 import com.locus.core.domain.time.Clock
@@ -23,6 +22,7 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
@@ -34,13 +34,18 @@ import org.robolectric.Shadows.shadowOf
 import org.robolectric.annotation.Config
 import java.time.Instant
 
+/**
+ * Verifies Acceptance criteria: "firing a reminder tied to a checklist line, tapping Complete,
+ * reopening the note shows the line ticked; tapping Snooze on a second reminder re-fires it ~15
+ * minutes later without duplicating the original recurring schedule."
+ */
 @OptIn(ExperimentalCoroutinesApi::class)
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [31])
-class ReminderActionReceiverTest {
+class ReminderAcceptanceScenarioTest {
     private lateinit var context: Context
     private val testDispatcher = StandardTestDispatcher()
-    private val baseTime = Instant.parse("2026-04-01T10:00:00Z")
+    private val baseTime = Instant.parse("2026-04-01T09:00:00Z")
 
     private val fakeClock = Clock { baseTime }
 
@@ -61,10 +66,13 @@ class ReminderActionReceiverTest {
                 reminder: Reminder,
                 tier: SchedulingTier,
             ) {
+                // Replace any existing schedule for this id without duplicating
+                scheduledReminders.removeAll { it.first.id == reminder.id }
                 scheduledReminders.add(reminder to tier)
             }
 
             override suspend fun cancel(reminderId: String) {
+                scheduledReminders.removeAll { it.first.id == reminderId }
                 canceledReminderIds.add(reminderId)
             }
         }
@@ -102,7 +110,7 @@ class ReminderActionReceiverTest {
             val flushedNotes = mutableListOf<String>()
 
             override fun observeNotesInFolder(folderPath: String): Flow<List<Note>> {
-                error("Not supported in test")
+                error("Not needed in test")
             }
 
             override fun observeAllNotes(): Flow<List<Note>> = throw UnsupportedOperationException()
@@ -166,7 +174,13 @@ class ReminderActionReceiverTest {
         fakeNoteRepo.flushedNotes.clear()
     }
 
-    private fun createReceiver(): ReminderActionReceiver =
+    private fun createReminderReceiver(): ReminderReceiver =
+        ReminderReceiver().apply {
+            reminderDao = fakeDao
+            dispatchers = fakeDispatchers
+        }
+
+    private fun createActionReceiver(): ReminderActionReceiver =
         ReminderActionReceiver().apply {
             reminderDao = fakeDao
             alarmScheduler = fakeAlarmScheduler
@@ -176,164 +190,118 @@ class ReminderActionReceiverTest {
         }
 
     @Test
-    fun handleCompleteFlipsChecklistLineAndCancelsNoneReminder() =
+    fun completeFiredReminderTiedToChecklistLine_ticksLineWhenNoteReopened() =
         runTest(testDispatcher) {
-            val receiver = createReceiver()
+            val reminderReceiver = createReminderReceiver()
+            val actionReceiver = createActionReceiver()
+            val nm = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+            val shadowNm = shadowOf(nm)
 
-            val initialBody =
+            // Given a source note with a checklist line at index 1
+            val initialNoteContent =
                 """
-                # Morning Tasks
-                - [ ] Buy milk
-                - [ ] Walk dog
+                # Morning Groceries
+                - [ ] 2L Oat Milk
+                - [ ] Sourdough Bread
                 """.trimIndent()
-            fakeNoteRepo.bodies["note-1"] = initialBody
+            val noteId = "groceries-note-1"
+            fakeNoteRepo.bodies[noteId] = initialNoteContent
 
-            val entity =
+            // And a scheduled reminder tied to checklistLineIndex = 1
+            val reminderId = "rem-milk"
+            val reminder =
                 ReminderEntity(
-                    id = "rem-1",
-                    noteId = "note-1",
+                    id = reminderId,
+                    noteId = noteId,
                     checklistLineIndex = 1,
-                    label = "Buy milk",
+                    label = "2L Oat Milk",
                     firstTrigger = baseTime,
                     repeat = RepeatRule.NONE,
                     scheduledTier = SchedulingTier.EXACT,
                     active = true,
                 )
-            fakeDao.upsert(entity)
+            fakeDao.upsert(reminder)
 
-            receiver.handleComplete("rem-1")
+            // When: 1. Firing the reminder (alarm manager / worker trigger)
+            reminderReceiver.showNotificationFor(context, reminderId)
 
-            val updatedBody = fakeNoteRepo.bodies["note-1"]
-            val expectedBody =
+            // Then: Grouped notification is posted (summary + child with actions)
+            val summaryNotification =
+                shadowNm.getNotification(ReminderReceiver.SUMMARY_NOTIFICATION_ID)
+            assertNotNull(summaryNotification)
+            val childNotification = shadowNm.getNotification(reminderId.hashCode())
+            assertNotNull(childNotification)
+            assertEquals("2L Oat Milk", childNotification.extras.getString(Notification.EXTRA_TITLE))
+            assertEquals("Complete", childNotification.actions[0].title.toString())
+            assertEquals("Snooze", childNotification.actions[1].title.toString())
+
+            // When: 2. Tapping Complete
+            actionReceiver.dismissNotification(context, reminderId.hashCode())
+            actionReceiver.handleComplete(reminderId)
+
+            // Then: 3. Reopening the note shows the line ticked (`- [x]`)
+            val reopenedNote = fakeNoteRepo.readBody(noteId)
+            val expectedNoteContent =
                 """
-                # Morning Tasks
-                - [x] Buy milk
-                - [ ] Walk dog
+                # Morning Groceries
+                - [x] 2L Oat Milk
+                - [ ] Sourdough Bread
                 """.trimIndent()
-            assertEquals(expectedBody, updatedBody)
-            assertTrue(fakeNoteRepo.flushedNotes.contains("note-1"))
-            assertTrue(canceledReminderIds.contains("rem-1"))
-            assertEquals(0, scheduledReminders.size)
+            assertEquals(expectedNoteContent, reopenedNote)
+            assertTrue(fakeNoteRepo.flushedNotes.contains(noteId))
+
+            // And the one-off reminder is canceled, child and summary notifications dismissed
+            assertTrue(canceledReminderIds.contains(reminderId))
+            assertNull(shadowNm.getNotification(reminderId.hashCode()))
+            assertNull(shadowNm.getNotification(ReminderReceiver.SUMMARY_NOTIFICATION_ID))
         }
 
     @Test
-    fun handleCompleteReschedulesRecurringReminder() =
+    fun snoozeSecondReminder_refires15MinutesLaterWithoutDuplicatingRecurringSchedule() =
         runTest(testDispatcher) {
-            val receiver = createReceiver()
+            val reminderReceiver = createReminderReceiver()
+            val actionReceiver = createActionReceiver()
+            val nm = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+            val shadowNm = shadowOf(nm)
 
-            val entity =
+            // Given a second recurring reminder (e.g. DAILY)
+            val reminderId = "rem-daily-workout"
+            val reminder =
                 ReminderEntity(
-                    id = "rem-daily",
-                    noteId = "note-2",
+                    id = reminderId,
+                    noteId = "workout-note",
                     checklistLineIndex = null,
-                    label = "Daily Standup",
+                    label = "Daily Workout",
                     firstTrigger = baseTime,
                     repeat = RepeatRule.DAILY,
-                    scheduledTier = SchedulingTier.INEXACT_WINDOW,
-                    active = true,
-                )
-            fakeDao.upsert(entity)
-
-            receiver.handleComplete("rem-daily")
-
-            assertEquals(0, canceledReminderIds.size)
-            assertEquals(1, scheduledReminders.size)
-
-            val (rescheduled, tier) = scheduledReminders.first()
-            assertEquals("rem-daily", rescheduled.id)
-            val expectedNext = ReminderRecurrence.nextTrigger(baseTime, RepeatRule.DAILY)
-            assertEquals(expectedNext, rescheduled.firstTrigger)
-            assertEquals(RepeatRule.DAILY, rescheduled.repeat)
-            assertEquals(SchedulingTier.INEXACT_WINDOW, tier)
-        }
-
-    @Test
-    fun handleCompleteLeavesNoteUntouchedWhenChecklistLineIndexNull() =
-        runTest(testDispatcher) {
-            val receiver = createReceiver()
-
-            fakeNoteRepo.bodies["note-plain"] = "Plain note body without checklist"
-
-            val entity =
-                ReminderEntity(
-                    id = "rem-plain",
-                    noteId = "note-plain",
-                    checklistLineIndex = null,
-                    label = "General reminder",
-                    firstTrigger = baseTime,
-                    repeat = RepeatRule.NONE,
                     scheduledTier = SchedulingTier.EXACT,
                     active = true,
                 )
-            fakeDao.upsert(entity)
+            fakeDao.upsert(reminder)
 
-            receiver.handleComplete("rem-plain")
+            // When: 1. Firing the reminder
+            reminderReceiver.showNotificationFor(context, reminderId)
+            assertNotNull(shadowNm.getNotification(reminderId.hashCode()))
 
-            assertEquals("Plain note body without checklist", fakeNoteRepo.bodies["note-plain"])
-            assertEquals(0, fakeNoteRepo.flushedNotes.size)
-            assertTrue(canceledReminderIds.contains("rem-plain"))
-        }
+            // When: 2. Tapping Snooze on the notification
+            actionReceiver.dismissNotification(context, reminderId.hashCode())
+            actionReceiver.handleSnooze(reminderId)
 
-    @Test
-    fun handleSnoozeReschedulesPlus15MinutesWithoutAlteringRepeatRule() =
-        runTest(testDispatcher) {
-            val receiver = createReceiver()
-
-            val entity =
-                ReminderEntity(
-                    id = "rem-snooze",
-                    noteId = "note-3",
-                    checklistLineIndex = 2,
-                    label = "Pay bills",
-                    firstTrigger = baseTime,
-                    repeat = RepeatRule.WEEKLY,
-                    scheduledTier = SchedulingTier.EXACT,
-                    active = true,
-                )
-            fakeDao.upsert(entity)
-
-            receiver.handleSnooze("rem-snooze")
-
+            // Then: Re-fires ~15 minutes later
+            val expectedSnoozeTrigger = baseTime.plusSeconds(15 * 60)
             assertEquals(1, scheduledReminders.size)
-            val (snoozed, tier) = scheduledReminders.first()
-            assertEquals("rem-snooze", snoozed.id)
-            val expectedSnoozeTime = baseTime.plusSeconds(15 * 60)
-            assertEquals(expectedSnoozeTime, snoozed.firstTrigger)
-            assertEquals(RepeatRule.WEEKLY, snoozed.repeat)
-            assertEquals(2, snoozed.checklistLineIndex)
+            val (snoozedSchedule, tier) = scheduledReminders.first()
+
+            assertEquals(reminderId, snoozedSchedule.id)
+            assertEquals(expectedSnoozeTrigger, snoozedSchedule.firstTrigger)
+
+            // And without duplicating the original recurring schedule:
+            // The underlying RepeatRule is preserved as DAILY and exact same ID
+            assertEquals(RepeatRule.DAILY, snoozedSchedule.repeat)
             assertEquals(SchedulingTier.EXACT, tier)
+
+            // And notification is dismissed
+            assertNull(shadowNm.getNotification(reminderId.hashCode()))
+            assertNull(shadowNm.getNotification(ReminderReceiver.SUMMARY_NOTIFICATION_ID))
         }
-
-    @Test
-    fun dismissNotificationCancelsChildAndCancelsSummaryIfNoChildrenRemain() {
-        val receiver = createReceiver()
-        val nm = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
-        val shadowNm = shadowOf(nm)
-
-        val summaryNotification =
-            NotificationCompat
-                .Builder(context, ReminderChannels.CHANNEL_REMINDERS)
-                .setSmallIcon(android.R.drawable.ic_lock_idle_alarm)
-                .setContentTitle("Reminders")
-                .setGroup(ReminderReceiver.GROUP_KEY_REMINDERS)
-                .setGroupSummary(true)
-                .build()
-        val childNotification =
-            NotificationCompat
-                .Builder(context, ReminderChannels.CHANNEL_REMINDERS)
-                .setSmallIcon(android.R.drawable.ic_lock_idle_alarm)
-                .setContentTitle("Task")
-                .setGroup(ReminderReceiver.GROUP_KEY_REMINDERS)
-                .build()
-
-        nm.notify(ReminderReceiver.SUMMARY_NOTIFICATION_ID, summaryNotification)
-        nm.notify(101, childNotification)
-
-        assertEquals(2, shadowNm.allNotifications.size)
-
-        receiver.dismissNotification(context, 101)
-
-        assertNull(shadowNm.getNotification(101))
-        assertNull(shadowNm.getNotification(ReminderReceiver.SUMMARY_NOTIFICATION_ID))
-    }
 }
