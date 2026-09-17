@@ -55,6 +55,9 @@ dependencies {
     implementation(libs.compose.material3)
     implementation(libs.compose.navigation)
     implementation(libs.hilt.navigation.compose)
+    implementation(libs.work.runtime.ktx)
+    implementation(libs.hilt.work)
+    ksp(libs.hilt.ext.compiler)
 
     testImplementation(libs.junit)
     testImplementation(libs.coroutines.test)

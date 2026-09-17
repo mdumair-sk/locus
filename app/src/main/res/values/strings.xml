@@ -57,4 +57,17 @@
     <string name="history_empty">No version history</string>
     <string name="history_restore_button">Restore this version</string>
     <string name="history_preview_title">Preview</string>
+    <string name="settings_backup_title">Scheduled auto-backup</string>
+    <string name="settings_backup_destination">Backup destination</string>
+    <string name="settings_backup_choose_folder">Choose backup folder</string>
+    <string name="settings_backup_change_folder">Change backup folder</string>
+    <string name="settings_backup_no_destination">No backup folder selected</string>
+    <string name="settings_backup_interval">Backup interval</string>
+    <string name="settings_backup_interval_daily">Daily</string>
+    <string name="settings_backup_interval_weekly">Weekly (default)</string>
+    <string name="settings_backup_interval_monthly">Monthly</string>
+    <string name="settings_backup_interval_off">Off</string>
+    <string name="settings_backup_now">Back up now</string>
+    <string name="settings_backup_in_progress">Backing up…</string>
+    <string name="settings_backup_last">Last backup: %1$s</string>
 </resources>

@@ -8,8 +8,10 @@ class TestDocumentFile(
     private val isDir: Boolean,
     var content: String = "",
     val children: MutableList<DocumentFile> = mutableListOf(),
-    private val docUri: Uri = Uri.parse("content://test.provider/document/${System.nanoTime()}"),
+    private val docUri: Uri =
+        Uri.parse("content://test.provider/document/${System.nanoTime()}"),
 ) : DocumentFile(parent) {
+    var contentBytes: ByteArray? = null
     private var currentName: String = docName
 
     override fun getParentFile(): DocumentFile? = parent
@@ -78,4 +80,13 @@ class TestDocumentFile(
         parent = newParent
         newParent.children.add(this)
     }
+
+    fun openOutputStream(): java.io.OutputStream =
+        object : java.io.ByteArrayOutputStream() {
+            override fun close() {
+                super.close()
+                contentBytes = toByteArray()
+                content = String(contentBytes!!, Charsets.UTF_8)
+            }
+        }
 }
