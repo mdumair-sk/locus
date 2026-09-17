@@ -11,6 +11,8 @@ import com.locus.core.data.files.DataStoreTreeUriStore
 import com.locus.core.data.files.SafNoteFileSource
 import com.locus.core.data.files.SafNoteRepository
 import com.locus.core.data.files.TreeUriStore
+import com.locus.core.data.reminders.AndroidAlarmScheduler
+import com.locus.core.data.reminders.ReminderDao
 import com.locus.core.data.search.RoomKeywordSearch
 import com.locus.core.domain.backup.BackupSettingsRepository
 import com.locus.core.domain.backup.ImportExportRepository
@@ -18,6 +20,7 @@ import com.locus.core.domain.notes.FrontmatterParser
 import com.locus.core.domain.notes.NoteRepository
 import com.locus.core.domain.notes.SnakeYamlCodec
 import com.locus.core.domain.notes.YamlCodec
+import com.locus.core.domain.reminders.AlarmScheduler
 import com.locus.core.domain.search.KeywordSearch
 import dagger.Binds
 import dagger.Module
@@ -54,6 +57,9 @@ abstract class DataModule {
     @Singleton
     abstract fun bindImportExportRepository(impl: SafImportExportRepository): ImportExportRepository
 
+    @Binds @Singleton
+    abstract fun bindAlarmScheduler(impl: AndroidAlarmScheduler): AlarmScheduler
+
     companion object {
         @Provides
         @Singleton
@@ -69,8 +75,12 @@ abstract class DataModule {
                     context,
                     LocusDatabase::class.java,
                     "locus.db",
-                ).build()
+                ).addMigrations(LocusDatabase.MIGRATION_1_2)
+                .build()
 
         @Provides fun provideNoteDao(database: LocusDatabase): NoteDao = database.noteDao()
+
+        @Provides
+        fun provideReminderDao(database: LocusDatabase): ReminderDao = database.reminderDao()
     }
 }
