@@ -20,10 +20,15 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.FilterChip
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
@@ -39,6 +44,14 @@ import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 
+private data class ImportExportActions(
+    val onToggleIncludeApiKeys: (Boolean) -> Unit,
+    val onExportLibrary: () -> Unit,
+    val onImportLibrary: () -> Unit,
+    val onExportSettings: () -> Unit,
+    val onImportSettings: () -> Unit,
+)
+
 private data class BackupUiState(
     val destinationUri: String?,
     val interval: BackupInterval,
@@ -46,6 +59,7 @@ private data class BackupUiState(
     val isBackingUp: Boolean,
 )
 
+@Suppress("LongMethod")
 @Composable
 fun SettingsScreen(
     onNavigateToTrash: () -> Unit,
@@ -57,6 +71,16 @@ fun SettingsScreen(
     val backupInterval by viewModel.backupInterval.collectAsState()
     val lastBackupTime by viewModel.lastBackupTime.collectAsState()
     val isBackingUp by viewModel.isBackingUp.collectAsState()
+    val includeApiKeys by viewModel.includeApiKeys.collectAsState()
+    val statusMessage by viewModel.statusMessage.collectAsState()
+
+    val snackbarHostState = remember { SnackbarHostState() }
+    LaunchedEffect(statusMessage) {
+        statusMessage?.let {
+            snackbarHostState.showSnackbar(it)
+            viewModel.clearStatusMessage()
+        }
+    }
 
     val context = LocalContext.current
     val folderLauncher =
@@ -79,6 +103,26 @@ fun SettingsScreen(
                 runCatching { context.contentResolver.takePersistableUriPermission(uri, flags) }
                 viewModel.setBackupDestination(uri.toString())
             }
+        }
+
+    val exportLibraryLauncher =
+        rememberLauncherForActivityResult(
+            ActivityResultContracts.CreateDocument("application/zip"),
+        ) { uri -> if (uri != null) viewModel.exportLibrary(uri.toString()) }
+
+    val importLibraryLauncher =
+        rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+            if (uri != null) viewModel.importLibrary(uri.toString())
+        }
+
+    val exportSettingsLauncher =
+        rememberLauncherForActivityResult(
+            ActivityResultContracts.CreateDocument("application/json"),
+        ) { uri -> if (uri != null) viewModel.exportSettings(uri.toString()) }
+
+    val importSettingsLauncher =
+        rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+            if (uri != null) viewModel.importSettings(uri.toString())
         }
 
     Box(modifier = modifier.fillMaxSize().padding(16.dp), contentAlignment = Alignment.TopCenter) {
@@ -107,7 +151,118 @@ fun SettingsScreen(
                 onBackupNow = { viewModel.backupNow() },
             )
 
+            ImportExportCard(
+                includeApiKeys = includeApiKeys,
+                actions =
+                    ImportExportActions(
+                        onToggleIncludeApiKeys = { viewModel.setIncludeApiKeys(it) },
+                        onExportLibrary = {
+                            exportLibraryLauncher.launch("locus-library.zip")
+                        },
+                        onImportLibrary = {
+                            importLibraryLauncher.launch(
+                                arrayOf(
+                                    "application/zip",
+                                    "application/x-zip-compressed",
+                                    "*/*",
+                                ),
+                            )
+                        },
+                        onExportSettings = {
+                            exportSettingsLauncher.launch("locus-settings.json")
+                        },
+                        onImportSettings = {
+                            importSettingsLauncher.launch(
+                                arrayOf("application/json", "text/plain", "*/*"),
+                            )
+                        },
+                    ),
+            )
+
             Button(onClick = onNavigateToTrash) { Text(stringResource(R.string.nav_trash)) }
+        }
+
+        SnackbarHost(
+            hostState = snackbarHostState,
+            modifier = Modifier.align(Alignment.BottomCenter),
+        )
+    }
+}
+
+@Composable
+private fun ImportExportCard(
+    includeApiKeys: Boolean,
+    actions: ImportExportActions,
+) {
+    Card(modifier = Modifier.fillMaxWidth()) {
+        Column(
+            modifier = Modifier.padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            Text(
+                text = stringResource(R.string.settings_import_export_title),
+                style = MaterialTheme.typography.titleMedium,
+            )
+
+            Text(
+                text = stringResource(R.string.settings_library_section_title),
+                style = MaterialTheme.typography.titleSmall,
+                color = MaterialTheme.colorScheme.primary,
+            )
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                OutlinedButton(onClick = actions.onExportLibrary, modifier = Modifier.weight(1f)) {
+                    Text(stringResource(R.string.settings_export_library))
+                }
+                OutlinedButton(onClick = actions.onImportLibrary, modifier = Modifier.weight(1f)) {
+                    Text(stringResource(R.string.settings_import_library))
+                }
+            }
+
+            HorizontalDivider()
+
+            Text(
+                text = stringResource(R.string.settings_settings_section_title),
+                style = MaterialTheme.typography.titleSmall,
+                color = MaterialTheme.colorScheme.primary,
+            )
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Column(modifier = Modifier.weight(1f).padding(end = 8.dp)) {
+                    Text(
+                        text = stringResource(R.string.settings_include_api_keys),
+                        style = MaterialTheme.typography.bodyMedium,
+                    )
+                    Text(
+                        text = stringResource(R.string.settings_include_api_keys_subtitle),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                Switch(
+                    checked = includeApiKeys,
+                    onCheckedChange = actions.onToggleIncludeApiKeys,
+                )
+            }
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                OutlinedButton(onClick = actions.onExportSettings, modifier = Modifier.weight(1f)) {
+                    Text(stringResource(R.string.settings_export_settings))
+                }
+                OutlinedButton(onClick = actions.onImportSettings, modifier = Modifier.weight(1f)) {
+                    Text(stringResource(R.string.settings_import_settings))
+                }
+            }
         }
     }
 }
@@ -165,36 +320,11 @@ private fun BackupCard(
                 onIntervalSelected = onIntervalSelected,
             )
 
-            Button(
-                onClick = onBackupNow,
-                enabled = state.destinationUri != null && !state.isBackingUp,
-                modifier = Modifier.fillMaxWidth(),
-            ) {
-                if (state.isBackingUp) {
-                    CircularProgressIndicator(
-                        modifier = Modifier.size(16.dp),
-                        color = MaterialTheme.colorScheme.onPrimary,
-                        strokeWidth = 2.dp,
-                    )
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Text(stringResource(R.string.settings_backup_in_progress))
-                } else {
-                    Text(stringResource(R.string.settings_backup_now))
-                }
-            }
-
-            if (state.lastBackupTime != null) {
-                val formattedDate =
-                    remember(state.lastBackupTime) {
-                        SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.getDefault())
-                            .format(Date(state.lastBackupTime))
-                    }
-                Text(
-                    text = stringResource(R.string.settings_backup_last, formattedDate),
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
+            BackupActionButton(
+                isBackingUp = state.isBackingUp,
+                lastBackupTime = state.lastBackupTime,
+                onBackupNow = onBackupNow,
+            )
         }
     }
 }
@@ -207,23 +337,23 @@ private fun BackupDestinationSection(
     Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
         Text(
             text = stringResource(R.string.settings_backup_destination),
-            style = MaterialTheme.typography.labelMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            style = MaterialTheme.typography.bodyMedium,
         )
         Text(
             text =
                 backupDestinationUri
                     ?: stringResource(R.string.settings_backup_no_destination),
-            style = MaterialTheme.typography.bodyMedium,
+            style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
         OutlinedButton(onClick = onChangeDestination) {
             Text(
-                if (backupDestinationUri != null) {
-                    stringResource(R.string.settings_backup_change_folder)
-                } else {
-                    stringResource(R.string.settings_backup_choose_folder)
-                },
+                text =
+                    if (backupDestinationUri == null) {
+                        stringResource(R.string.settings_backup_choose_folder)
+                    } else {
+                        stringResource(R.string.settings_backup_change_folder)
+                    },
             )
         }
     }
@@ -237,31 +367,83 @@ private fun BackupIntervalSection(
     Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
         Text(
             text = stringResource(R.string.settings_backup_interval),
-            style = MaterialTheme.typography.labelMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            style = MaterialTheme.typography.bodyMedium,
         )
         Row(
             modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
             horizontalArrangement = Arrangement.spacedBy(8.dp),
         ) {
             BackupInterval.entries.forEach { interval ->
-                val label =
-                    when (interval) {
-                        BackupInterval.DAILY ->
-                            stringResource(R.string.settings_backup_interval_daily)
-                        BackupInterval.WEEKLY ->
-                            stringResource(R.string.settings_backup_interval_weekly)
-                        BackupInterval.MONTHLY ->
-                            stringResource(R.string.settings_backup_interval_monthly)
-                        BackupInterval.OFF ->
-                            stringResource(R.string.settings_backup_interval_off)
-                    }
                 FilterChip(
                     selected = backupInterval == interval,
                     onClick = { onIntervalSelected(interval) },
-                    label = { Text(label) },
+                    label = {
+                        Text(
+                            text =
+                                when (interval) {
+                                    BackupInterval.DAILY ->
+                                        stringResource(
+                                            R.string
+                                                .settings_backup_interval_daily,
+                                        )
+                                    BackupInterval.WEEKLY ->
+                                        stringResource(
+                                            R.string
+                                                .settings_backup_interval_weekly,
+                                        )
+                                    BackupInterval.MONTHLY ->
+                                        stringResource(
+                                            R.string
+                                                .settings_backup_interval_monthly,
+                                        )
+                                    BackupInterval.OFF ->
+                                        stringResource(
+                                            R.string
+                                                .settings_backup_interval_off,
+                                        )
+                                },
+                        )
+                    },
                 )
             }
+        }
+    }
+}
+
+@Composable
+private fun BackupActionButton(
+    isBackingUp: Boolean,
+    lastBackupTime: Long?,
+    onBackupNow: () -> Unit,
+) {
+    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        Button(
+            onClick = onBackupNow,
+            enabled = !isBackingUp,
+            modifier = Modifier.fillMaxWidth(),
+        ) {
+            if (isBackingUp) {
+                CircularProgressIndicator(
+                    modifier = Modifier.size(16.dp),
+                    color = MaterialTheme.colorScheme.onPrimary,
+                    strokeWidth = 2.dp,
+                )
+                Spacer(modifier = Modifier.width(8.dp))
+                Text(stringResource(R.string.settings_backup_in_progress))
+            } else {
+                Text(stringResource(R.string.settings_backup_now))
+            }
+        }
+
+        if (lastBackupTime != null && lastBackupTime > 0) {
+            val formatted =
+                SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.getDefault())
+                    .format(Date(lastBackupTime))
+            Text(
+                text = stringResource(R.string.settings_backup_last, formatted),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
         }
     }
 }

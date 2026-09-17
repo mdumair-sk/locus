@@ -1,21 +1,28 @@
 package com.locus.app.ui.settings
 
 import android.content.Context
+import android.net.Uri
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import androidx.work.WorkInfo
 import androidx.work.WorkManager
+import com.locus.app.R
 import com.locus.app.workers.WorkScheduling
 import com.locus.core.domain.backup.BackupInterval
 import com.locus.core.domain.backup.BackupSettingsRepository
+import com.locus.core.domain.backup.ImportExportRepository
+import com.locus.core.domain.backup.LibraryImportOutcome
 import com.locus.core.domain.notes.NoteRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+import java.io.IOException
 import javax.inject.Inject
 
 @HiltViewModel
@@ -24,6 +31,7 @@ class SettingsViewModel
     constructor(
         private val repo: NoteRepository,
         private val backupSettingsRepo: BackupSettingsRepository,
+        private val importExportRepo: ImportExportRepository,
         @ApplicationContext private val context: Context,
     ) : ViewModel() {
         val rootUri: StateFlow<String?> =
@@ -63,19 +71,37 @@ class SettingsViewModel
                 )
 
         val isBackingUp: StateFlow<Boolean> =
-            WorkManager
-                .getInstance(context)
-                .getWorkInfosForUniqueWorkFlow(WorkScheduling.ON_DEMAND_BACKUP_WORK_NAME)
-                .map { workInfos ->
-                    workInfos.any {
-                        it.state == WorkInfo.State.RUNNING ||
-                            it.state == WorkInfo.State.ENQUEUED
+            runCatching {
+                WorkManager
+                    .getInstance(context)
+                    .getWorkInfosForUniqueWorkFlow(
+                        WorkScheduling.ON_DEMAND_BACKUP_WORK_NAME,
+                    ).map { workInfos ->
+                        workInfos.any {
+                            it.state == WorkInfo.State.RUNNING ||
+                                it.state == WorkInfo.State.ENQUEUED
+                        }
                     }
-                }.stateIn(
+            }.getOrDefault(kotlinx.coroutines.flow.flowOf(false))
+                .stateIn(
                     scope = viewModelScope,
                     started = SharingStarted.WhileSubscribed(STOP_TIMEOUT_MILLIS),
                     initialValue = false,
                 )
+
+        private val _includeApiKeys = MutableStateFlow(false)
+        val includeApiKeys: StateFlow<Boolean> = _includeApiKeys.asStateFlow()
+
+        private val _statusMessage = MutableStateFlow<String?>(null)
+        val statusMessage: StateFlow<String?> = _statusMessage.asStateFlow()
+
+        fun setIncludeApiKeys(include: Boolean) {
+            _includeApiKeys.value = include
+        }
+
+        fun clearStatusMessage() {
+            _statusMessage.value = null
+        }
 
         fun setRootFolder(uriString: String) {
             viewModelScope.launch { repo.setRootUri(uriString) }
@@ -95,6 +121,133 @@ class SettingsViewModel
         fun backupNow() {
             WorkScheduling.triggerOnDemandBackup(context)
         }
+
+        fun exportLibrary(destinationUri: String) {
+            viewModelScope.launch {
+                val success = importExportRepo.exportLibrary(destinationUri)
+                _statusMessage.value =
+                    if (success) {
+                        getStringSafe(
+                            R.string.settings_export_library_success,
+                            "Library exported successfully",
+                        )
+                    } else {
+                        getStringSafe(
+                            R.string.settings_operation_failed,
+                            "Export failed",
+                            "Operation failed: Export failed",
+                        )
+                    }
+            }
+        }
+
+        fun importLibrary(
+            zipUri: String,
+            destinationTreeUri: String? = null,
+        ) {
+            viewModelScope.launch {
+                val dest = destinationTreeUri ?: rootUri.value
+                if (dest == null) {
+                    _statusMessage.value =
+                        getStringSafe(R.string.no_folder_selected, "No folder selected")
+                    return@launch
+                }
+                when (val outcome = importExportRepo.importLibrary(zipUri, dest)) {
+                    is LibraryImportOutcome.Success -> {
+                        _statusMessage.value =
+                            getStringSafe(
+                                R.string.settings_import_library_success,
+                                outcome.fileCount,
+                                "Imported ${outcome.fileCount} notes successfully",
+                            )
+                    }
+                    is LibraryImportOutcome.InvalidZip -> {
+                        _statusMessage.value =
+                            getStringSafe(
+                                R.string.settings_import_invalid_zip,
+                                "Invalid zip: not a valid Locus export",
+                            )
+                    }
+                    is LibraryImportOutcome.Failure -> {
+                        _statusMessage.value =
+                            getStringSafe(
+                                R.string.settings_operation_failed,
+                                outcome.message,
+                                "Operation failed: ${outcome.message}",
+                            )
+                    }
+                }
+            }
+        }
+
+        @Suppress("TooGenericExceptionCaught")
+        fun exportSettings(destinationUri: String) {
+            viewModelScope.launch {
+                try {
+                    val json = importExportRepo.exportSettings(_includeApiKeys.value)
+                    context.contentResolver.openOutputStream(Uri.parse(destinationUri), "wt")?.use { out ->
+                        out.bufferedWriter(Charsets.UTF_8).use { writer ->
+                            writer.write(json)
+                            writer.flush()
+                        }
+                    }
+                        ?: throw IOException("Could not open destination output stream")
+                    _statusMessage.value =
+                        getStringSafe(
+                            R.string.settings_export_settings_success,
+                            "Settings exported successfully",
+                        )
+                } catch (e: Exception) {
+                    val err = e.message ?: "Export failed"
+                    _statusMessage.value =
+                        getStringSafe(
+                            R.string.settings_operation_failed,
+                            err,
+                            "Operation failed: $err",
+                        )
+                }
+            }
+        }
+
+        @Suppress("TooGenericExceptionCaught")
+        fun importSettings(sourceUri: String) {
+            viewModelScope.launch {
+                try {
+                    val json =
+                        context.contentResolver.openInputStream(Uri.parse(sourceUri))?.use { input ->
+                            input.bufferedReader(Charsets.UTF_8).use { reader -> reader.readText() }
+                        }
+                            ?: throw IOException("Could not open source input stream")
+                    val success = importExportRepo.importSettings(json)
+                    _statusMessage.value =
+                        if (success) {
+                            context.getString(R.string.settings_import_settings_success)
+                        } else {
+                            context.getString(
+                                R.string.settings_operation_failed,
+                                "Invalid settings JSON",
+                            )
+                        }
+                } catch (e: Exception) {
+                    _statusMessage.value =
+                        context.getString(
+                            R.string.settings_operation_failed,
+                            e.message ?: "Import failed",
+                        )
+                }
+            }
+        }
+
+        private fun getStringSafe(
+            resId: Int,
+            fallback: String,
+        ): String = runCatching { context.getString(resId) }.getOrDefault(fallback)
+
+        private fun getStringSafe(
+            resId: Int,
+            formatArg: Any,
+            fallback: String,
+        ): String = runCatching { context.getString(resId, formatArg) }.getOrDefault(fallback)
 
         private companion object {
             private const val STOP_TIMEOUT_MILLIS = 5_000L

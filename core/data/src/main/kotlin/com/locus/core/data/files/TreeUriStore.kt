@@ -2,19 +2,15 @@ package com.locus.core.data.files
 
 import android.content.Context
 import android.net.Uri
-import androidx.datastore.core.DataStore
-import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.stringPreferencesKey
-import androidx.datastore.preferences.preferencesDataStore
+import com.locus.core.data.backup.storageDataStore
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import javax.inject.Inject
 import javax.inject.Singleton
-
-private val Context.dataStore: DataStore<Preferences> by preferencesDataStore(name = "locus_storage_preferences")
 
 interface TreeUriStore {
     val treeUriFlow: Flow<Uri?>
@@ -33,15 +29,11 @@ class DataStoreTreeUriStore
         private val treeUriKey = stringPreferencesKey("notes_tree_uri")
 
         override val treeUriFlow: Flow<Uri?> =
-            context.dataStore.data.map { prefs ->
-                prefs[treeUriKey]?.let { Uri.parse(it) }
-            }
+            context.storageDataStore.data.map { prefs -> prefs[treeUriKey]?.let { Uri.parse(it) } }
 
         override suspend fun getTreeUri(): Uri? = treeUriFlow.first()
 
         override suspend fun setTreeUri(uri: Uri) {
-            context.dataStore.edit { prefs ->
-                prefs[treeUriKey] = uri.toString()
-            }
+            context.storageDataStore.edit { prefs -> prefs[treeUriKey] = uri.toString() }
         }
     }

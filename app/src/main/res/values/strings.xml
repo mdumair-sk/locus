@@ -70,4 +70,19 @@
     <string name="settings_backup_now">Back up now</string>
     <string name="settings_backup_in_progress">Backing up…</string>
     <string name="settings_backup_last">Last backup: %1$s</string>
+    <string name="settings_import_export_title">Import &amp; export</string>
+    <string name="settings_library_section_title">Library</string>
+    <string name="settings_settings_section_title">Settings</string>
+    <string name="settings_export_library">Export library</string>
+    <string name="settings_import_library">Import library</string>
+    <string name="settings_export_settings">Export settings</string>
+    <string name="settings_import_settings">Import settings</string>
+    <string name="settings_include_api_keys">Include API keys</string>
+    <string name="settings_include_api_keys_subtitle">Include provider tokens and keys in exported settings. Excluded by default.</string>
+    <string name="settings_import_library_success">Imported %1$d notes successfully</string>
+    <string name="settings_import_settings_success">Settings imported successfully</string>
+    <string name="settings_export_settings_success">Settings exported successfully</string>
+    <string name="settings_export_library_success">Library exported successfully</string>
+    <string name="settings_import_invalid_zip">Invalid zip: not a valid Locus export</string>
+    <string name="settings_operation_failed">Operation failed: %1$s</string>
 </resources>

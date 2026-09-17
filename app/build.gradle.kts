@@ -20,26 +20,18 @@ android {
 
     flavorDimensions += "distribution"
     productFlavors {
-        create("oss") {
-            dimension = "distribution"
-        }
-        create("full") {
-            dimension = "distribution"
-        }
+        create("oss") { dimension = "distribution" }
+        create("full") { dimension = "distribution" }
     }
 
-    buildFeatures {
-        compose = true
-    }
+    buildFeatures { compose = true }
 
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
     }
 
-    kotlinOptions {
-        jvmTarget = "17"
-    }
+    kotlinOptions { jvmTarget = "17" }
 }
 
 dependencies {
@@ -62,4 +54,5 @@ dependencies {
     testImplementation(libs.junit)
     testImplementation(libs.coroutines.test)
     testImplementation(libs.turbine)
+    testImplementation(libs.robolectric)
 }
