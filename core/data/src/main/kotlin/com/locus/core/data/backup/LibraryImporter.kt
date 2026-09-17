@@ -216,8 +216,10 @@ class LibraryImporter
                     val file = File(path)
                     file.mkdirs()
                     DocumentFile.fromFile(file)
-                } else {
+                } else if (android.provider.DocumentsContract.isTreeUri(treeUri)) {
                     DocumentFile.fromTreeUri(context, treeUri)
+                } else {
+                    null
                 }
 
         private fun openInputStreamForUri(uri: Uri): InputStream {

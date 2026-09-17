@@ -16,6 +16,13 @@ class SafImportExportRepository
     ) : ImportExportRepository {
         override suspend fun exportLibrary(destinationUriString: String): Boolean {
             val result = backupManager.runBackup(Uri.parse(destinationUriString))
+            if (result is BackupResult.Failure) {
+                android.util.Log.e(
+                    "SafImportExport",
+                    "exportLibrary failed: ${result.cause.message}",
+                    result.cause,
+                )
+            }
             return result is BackupResult.Success
         }
 

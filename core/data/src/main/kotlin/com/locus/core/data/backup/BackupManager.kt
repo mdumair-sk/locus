@@ -76,6 +76,7 @@ open class BackupManager
                         byteCount = byteCount,
                     )
                 } catch (e: Exception) {
+                    android.util.Log.e("BackupManager", "runBackup failed: ${e.message}", e)
                     BackupResult.Failure(e)
                 }
             }
@@ -142,7 +143,13 @@ open class BackupManager
                 entry.time = lastMod
             }
             zipOut.putNextEntry(entry)
-            val bytesCopied = openInputStreamForDoc(child).use { input -> input.copyTo(zipOut) }
+            val bytesCopied =
+                try {
+                    openInputStreamForDoc(child).use { input -> input.copyTo(zipOut) }
+                } catch (e: IOException) {
+                    android.util.Log.e("BackupManager", "Failed to copy child: $entryPath", e)
+                    throw e
+                }
             zipOut.closeEntry()
             tracker.fileCount++
             tracker.byteCount += bytesCopied
@@ -162,10 +169,11 @@ open class BackupManager
                                 ?: destinationUri.toString().removePrefix("file://"),
                         )
                     if (file.isDirectory) DocumentFile.fromFile(file) else null
-                } else {
+                } else if (android.provider.DocumentsContract.isTreeUri(destinationUri)) {
                     DocumentFile.fromTreeUri(context, destinationUri)
+                } else {
+                    null
                 }
-
             if (destDoc != null && destDoc.isDirectory) {
                 val timestamp = SimpleDateFormat("yyyyMMdd-HHmmss", Locale.US).format(Date())
                 val fileName = "locus-backup-$timestamp.zip"
@@ -195,8 +203,11 @@ open class BackupManager
                 val path = uri.path ?: uri.toString().removePrefix("file://")
                 FileOutputStream(File(path))
             } else {
-                context.contentResolver.openOutputStream(uri)
-                    ?: throw IOException("Cannot open output stream for destination: $uri")
+                context.contentResolver.openOutputStream(uri, "wt")
+                    ?: context.contentResolver.openOutputStream(uri)
+                    ?: throw IOException(
+                        "Cannot open output stream for destination: $uri",
+                    )
             }
 
         private fun openInputStreamForDoc(doc: DocumentFile): InputStream {
