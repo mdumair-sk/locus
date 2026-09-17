@@ -41,6 +41,23 @@
                 <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
             </intent-filter>
         </receiver>
+
+        <receiver
+            android:name=".receivers.ReminderReceiver"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="com.locus.app.ACTION_REMINDER_TRIGGER" />
+            </intent-filter>
+        </receiver>
+
+        <receiver
+            android:name=".receivers.ReminderActionReceiver"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="com.locus.app.ACTION_REMINDER_COMPLETE" />
+                <action android:name="com.locus.app.ACTION_REMINDER_SNOOZE" />
+            </intent-filter>
+        </receiver>
     </application>
 
 </manifest>
