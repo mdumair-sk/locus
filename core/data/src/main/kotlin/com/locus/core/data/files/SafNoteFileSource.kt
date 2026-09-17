@@ -46,6 +46,11 @@ class AndroidSafNoteFileSource
         override fun getRootDocument(treeUri: Uri): DocumentFile? =
             if (DocumentsContract.isTreeUri(treeUri)) {
                 DocumentFile.fromTreeUri(context, treeUri)
+            } else if (treeUri.scheme == "file") {
+                val path = treeUri.path ?: treeUri.toString().removePrefix("file://")
+                val file = java.io.File(path)
+                if (!file.exists()) file.mkdirs()
+                DocumentFile.fromFile(file)
             } else {
                 null
             }
@@ -69,11 +74,16 @@ class AndroidSafNoteFileSource
             return files
         }
 
-        override fun readText(doc: DocumentFile): String =
-            context.contentResolver.openInputStream(doc.uri)?.use { stream ->
+        override fun readText(doc: DocumentFile): String {
+            if (doc.uri.scheme == "file") {
+                val path = doc.uri.path ?: doc.uri.toString().removePrefix("file://")
+                return java.io.File(path).readText(Charsets.UTF_8)
+            }
+            return context.contentResolver.openInputStream(doc.uri)?.use { stream ->
                 stream.bufferedReader(Charsets.UTF_8).readText()
             }
                 ?: throw IOException("Could not open input stream for ${doc.uri}")
+        }
 
         override fun listFolders(treeUri: Uri): List<String> {
             val root = getRootDocument(treeUri) ?: return emptyList()
@@ -111,6 +121,11 @@ class AndroidSafNoteFileSource
                     contentField.set(doc, text)
                     return
                 }
+            }
+            if (doc.uri.scheme == "file") {
+                val path = doc.uri.path ?: doc.uri.toString().removePrefix("file://")
+                java.io.File(path).writeText(text, Charsets.UTF_8)
+                return
             }
 
             context.contentResolver.openOutputStream(doc.uri, "wt")?.use { stream ->
