@@ -43,7 +43,12 @@ class AndroidSafNoteFileSource
     constructor(
         @ApplicationContext private val context: Context,
     ) : SafNoteFileSource {
-        override fun getRootDocument(treeUri: Uri): DocumentFile? = DocumentFile.fromTreeUri(context, treeUri)
+        override fun getRootDocument(treeUri: Uri): DocumentFile? =
+            if (DocumentsContract.isTreeUri(treeUri)) {
+                DocumentFile.fromTreeUri(context, treeUri)
+            } else {
+                null
+            }
 
         override fun listMarkdownFiles(treeUri: Uri): List<DocumentFile> {
             val root = getRootDocument(treeUri) ?: return emptyList()

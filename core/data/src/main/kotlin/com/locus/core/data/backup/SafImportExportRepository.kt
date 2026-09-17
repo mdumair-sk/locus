@@ -29,14 +29,20 @@ class SafImportExportRepository
         override suspend fun importLibrary(
             zipUriString: String,
             destinationTreeUriString: String,
-        ): LibraryImportOutcome =
-            when (
-                val result =
-                    libraryImporter.import(
-                        Uri.parse(zipUriString),
-                        Uri.parse(destinationTreeUriString),
-                    )
-            ) {
+        ): LibraryImportOutcome {
+            val result =
+                libraryImporter.import(
+                    Uri.parse(zipUriString),
+                    Uri.parse(destinationTreeUriString),
+                )
+            if (result is ImportResult.Failure) {
+                android.util.Log.e(
+                    "SafImportExport",
+                    "importLibrary failed: ${result.cause.message}",
+                    result.cause,
+                )
+            }
+            return when (result) {
                 is ImportResult.Success -> LibraryImportOutcome.Success(result.fileCount)
                 is ImportResult.InvalidZip -> LibraryImportOutcome.InvalidZip(result.message)
                 is ImportResult.Failure ->
@@ -44,6 +50,7 @@ class SafImportExportRepository
                         result.cause.message ?: "Import failed",
                     )
             }
+        }
 
         override suspend fun exportSettings(includeApiKeys: Boolean): String = settingsExporter.export(includeApiKeys)
 

@@ -236,7 +236,7 @@ class LibraryImporter
         }
 
         private fun readTestDocumentStreamByUri(uri: Uri): InputStream? {
-            val doc = fileSource.getRootDocument(uri) ?: return null
+            val doc = runCatching { fileSource.getRootDocument(uri) }.getOrNull() ?: return null
             return getTestDocInputStream(doc)
         }
 

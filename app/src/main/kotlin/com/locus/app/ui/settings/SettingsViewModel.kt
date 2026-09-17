@@ -19,6 +19,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.firstOrNull
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
@@ -146,12 +147,16 @@ class SettingsViewModel
             destinationTreeUri: String? = null,
         ) {
             viewModelScope.launch {
-                val dest = destinationTreeUri ?: rootUri.value
-                if (dest == null) {
+                val dest =
+                    destinationTreeUri
+                        ?: repo.observeRootUri().firstOrNull { !it.isNullOrBlank() }
+                        ?: rootUri.value
+                if (dest.isNullOrBlank()) {
                     _statusMessage.value =
                         getStringSafe(R.string.no_folder_selected, "No folder selected")
                     return@launch
                 }
+                android.util.Log.i("SettingsViewModel", "importLibrary: zip=$zipUri, dest=$dest")
                 when (val outcome = importExportRepo.importLibrary(zipUri, dest)) {
                     is LibraryImportOutcome.Success -> {
                         _statusMessage.value =

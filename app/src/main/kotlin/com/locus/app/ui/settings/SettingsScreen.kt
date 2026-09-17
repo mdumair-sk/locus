@@ -112,7 +112,11 @@ fun SettingsScreen(
 
     val importLibraryLauncher =
         rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
-            if (uri != null) viewModel.importLibrary(uri.toString())
+            if (uri != null) {
+                val flags = Intent.FLAG_GRANT_READ_URI_PERMISSION
+                runCatching { context.contentResolver.takePersistableUriPermission(uri, flags) }
+                viewModel.importLibrary(uri.toString())
+            }
         }
 
     val exportSettingsLauncher =
