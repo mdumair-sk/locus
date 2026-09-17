@@ -3,6 +3,7 @@ package com.locus.core.data.files
 import android.content.Context
 import android.net.Uri
 import androidx.documentfile.provider.DocumentFile
+import com.locus.core.data.history.NoteHistoryStore
 import com.locus.core.domain.notes.Checksum
 import com.locus.core.domain.notes.FlushReceipt
 import com.locus.core.domain.notes.NoteFileWriter
@@ -21,7 +22,19 @@ class SafNoteFileWriter
         @ApplicationContext private val context: Context,
         private val fileSource: SafNoteFileSource,
         private val treeUriStore: TreeUriStore,
+        private val historyStore: NoteHistoryStore,
     ) : NoteFileWriter {
+        constructor(
+            context: Context,
+            fileSource: SafNoteFileSource,
+            treeUriStore: TreeUriStore,
+        ) : this(
+            context = context,
+            fileSource = fileSource,
+            treeUriStore = treeUriStore,
+            historyStore = NoteHistoryStore(context, fileSource, treeUriStore),
+        )
+
         override suspend fun atomicWrite(
             noteId: String,
             path: String,
@@ -42,7 +55,7 @@ class SafNoteFileWriter
                 path.startsWith("file://") ||
                 (path.length > 2 && path[1] == ':' && (path[2] == '\\' || path[2] == '/'))
 
-        private fun writeFileDirect(
+        private suspend fun writeFileDirect(
             noteId: String,
             path: String,
             content: String,
@@ -52,6 +65,14 @@ class SafNoteFileWriter
             if (!parent.exists() && !parent.mkdirs()) {
                 throw IOException("Failed to create parent directory for ${file.absolutePath}")
             }
+
+            if (file.exists() && file.length() > 0) {
+                val previousContent = file.readText(Charsets.UTF_8)
+                if (previousContent.isNotEmpty()) {
+                    historyStore.snapshot(noteId, previousContent, parent)
+                }
+            }
+
             val tempFile = File(parent, ".${file.name}.${System.currentTimeMillis()}.tmp")
             tempFile.writeText(content, Charsets.UTF_8)
             val renamed = tempFile.renameTo(file)
@@ -153,7 +174,7 @@ class SafNoteFileWriter
             return currentDir
         }
 
-        private fun writeToParentAndReplace(
+        private suspend fun writeToParentAndReplace(
             noteId: String,
             parentDoc: DocumentFile,
             targetDoc: DocumentFile?,
@@ -161,6 +182,12 @@ class SafNoteFileWriter
             content: String,
         ): FlushReceipt {
             val target = targetDoc ?: parentDoc.findFile(targetName)
+            if (target != null && target.exists() && target.length() > 0) {
+                val previousContent = runCatching { fileSource.readText(target) }.getOrNull()
+                if (!previousContent.isNullOrEmpty()) {
+                    historyStore.snapshot(noteId, previousContent)
+                }
+            }
             val docToWrite =
                 target
                     ?: parentDoc.createFile("text/markdown", targetName)

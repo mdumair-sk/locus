@@ -15,6 +15,9 @@ import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -75,6 +78,8 @@ fun EditorScreen(
 
     val uiState by viewModel.uiState.collectAsState()
 
+    var showHistorySheet by remember { mutableStateOf(false) }
+
     val actions =
         EditorActions(
             onNavigateBack = onNavigateBack,
@@ -82,12 +87,24 @@ fun EditorScreen(
             onBodyChange = { viewModel.onBodyChange(it) },
             onTitleChange = { viewModel.onTitleChange(it) },
             onDeleteNote = { viewModel.deleteNote(onDeleted = onNavigateBack) },
+            onOpenHistory = { showHistorySheet = true },
         )
     EditorContent(
         uiState = uiState,
         actions = actions,
         modifier = modifier,
     )
+
+    if (showHistorySheet) {
+        HistorySheet(
+            noteId = noteId,
+            onDismiss = { showHistorySheet = false },
+            onRestored = {
+                showHistorySheet = false
+                viewModel.loadNote(noteId)
+            },
+        )
+    }
 }
 
 private data class EditorActions(
@@ -96,6 +113,7 @@ private data class EditorActions(
     val onBodyChange: (String) -> Unit,
     val onTitleChange: (String) -> Unit,
     val onDeleteNote: () -> Unit,
+    val onOpenHistory: () -> Unit,
 )
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -127,6 +145,7 @@ private fun EditorContent(
                 onNavigateBack = actions.onNavigateBack,
                 onTogglePreview = actions.onTogglePreview,
                 onDeleteNote = actions.onDeleteNote,
+                onOpenHistory = actions.onOpenHistory,
             )
         },
         modifier = modifier.fillMaxSize(),
@@ -180,6 +199,7 @@ private fun EditorTopBar(
     onNavigateBack: () -> Unit,
     onTogglePreview: () -> Unit,
     onDeleteNote: () -> Unit,
+    onOpenHistory: () -> Unit,
 ) {
     TopAppBar(
         title = {},
@@ -208,6 +228,27 @@ private fun EditorTopBar(
                     imageVector = Icons.Default.Delete,
                     contentDescription = stringResource(R.string.delete_note),
                 )
+            }
+            var menuExpanded by remember { mutableStateOf(false) }
+            Box {
+                IconButton(onClick = { menuExpanded = true }) {
+                    Icon(
+                        imageVector = Icons.Default.MoreVert,
+                        contentDescription = stringResource(R.string.editor_more_options),
+                    )
+                }
+                DropdownMenu(
+                    expanded = menuExpanded,
+                    onDismissRequest = { menuExpanded = false },
+                ) {
+                    DropdownMenuItem(
+                        text = { Text(stringResource(R.string.editor_version_history)) },
+                        onClick = {
+                            menuExpanded = false
+                            onOpenHistory()
+                        },
+                    )
+                }
             }
         },
     )

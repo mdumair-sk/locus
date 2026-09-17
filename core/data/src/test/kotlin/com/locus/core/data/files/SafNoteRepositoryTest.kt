@@ -15,6 +15,7 @@ import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
@@ -880,5 +881,120 @@ class SafNoteRepositoryTest {
                     raw.contains("title: null") ||
                     raw.contains("title: ")
             assertTrue(containsEmptyTitle)
+        }
+
+    @Test
+    fun acceptance_twentyOneSaves_andRestore_producesNewHistorySnapshot() =
+        runTest {
+            val root = TestDocumentFile(parent = null, docName = "Notes", isDir = true)
+            val fileSource = FakeSafNoteFileSource(root)
+            val treeUriStore =
+                object : TreeUriStore {
+                    private var uri: Uri? = treeUri
+                    override val treeUriFlow = MutableStateFlow(treeUri)
+
+                    override suspend fun getTreeUri(): Uri? = uri
+
+                    override suspend fun setTreeUri(uri: Uri) {
+                        this.uri = uri
+                        treeUriFlow.value = uri
+                    }
+                }
+            val historyStore =
+                com.locus.core.data.history
+                    .NoteHistoryStore(fileSource, treeUriStore)
+            val fileWriter =
+                object : NoteFileWriter {
+                    override suspend fun atomicWrite(
+                        noteId: String,
+                        path: String,
+                        content: String,
+                    ): Result<FlushReceipt> {
+                        val doc =
+                            fileSource.listMarkdownFiles(treeUri).firstOrNull {
+                                it.name == "$noteId.md" || it.uri.toString() == path
+                            }
+                        if (doc != null && (doc as TestDocumentFile).content.isNotEmpty()) {
+                            historyStore.snapshot(noteId, doc.content)
+                        }
+                        if (doc != null) {
+                            (doc as TestDocumentFile).content = content
+                        } else {
+                            val newDoc =
+                                root.createFile("text/markdown", "$noteId.md") as
+                                    TestDocumentFile
+                            newDoc.content = content
+                        }
+                        return Result.success(
+                            FlushReceipt(
+                                noteId = noteId,
+                                checksum = Checksum.sha256(content),
+                                flushedAt = System.currentTimeMillis(),
+                            ),
+                        )
+                    }
+                }
+
+            val testDispatchers =
+                object : DispatcherProvider {
+                    override val io: CoroutineDispatcher = Dispatchers.Unconfined
+                    override val default: CoroutineDispatcher = Dispatchers.Unconfined
+                    override val main: CoroutineDispatcher = Dispatchers.Unconfined
+                    override val mainImmediate: CoroutineDispatcher = Dispatchers.Unconfined
+                }
+            val coordinator =
+                NoteFlushCoordinator(
+                    fileWriter = fileWriter,
+                    indexQueue =
+                        object : IndexUpdateQueue {
+                            override suspend fun enqueue(receipt: FlushReceipt) = Unit
+                        },
+                    dispatchers = testDispatchers,
+                    scope = CoroutineScope(SupervisorJob() + Dispatchers.Unconfined),
+                )
+            val repository =
+                SafNoteRepository(
+                    fileSource = fileSource,
+                    parser = parser,
+                    initialTreeUri = treeUri,
+                    coordinator = coordinator,
+                    historyStore = historyStore,
+                )
+
+            val note =
+                repository.createNote(
+                    folderPath = "",
+                    title = "My Note",
+                    type = com.locus.core.domain.notes.NoteType.NOTE,
+                )
+            val noteId = note.id
+
+            // Initial create doesn't snapshot (no prior content)
+            assertEquals(0, repository.listRevisions(noteId).size)
+
+            // Perform 21 sequential edits + forceFlush
+            for (i in 1..21) {
+                repository.edit(noteId, "Version $i body")
+                repository.forceFlush(noteId, com.locus.core.domain.notes.FlushTrigger.EDITOR_CLOSE)
+            }
+
+            // Exactly 20 revisions retained (cap 20 revisions/note FIFO: versions 20 down to 1)
+            val revisions = repository.listRevisions(noteId)
+            assertEquals(20, revisions.size)
+            assertEquals("Version 20 body", revisions.first().body)
+            assertEquals("Version 1 body", revisions.last().body)
+            assertEquals("Version 21 body", repository.readBody(noteId))
+            // Now restore Version 5
+            val version5 = revisions.first { it.body == "Version 5 body" }
+            repository.edit(noteId, version5.body)
+            repository.forceFlush(noteId, com.locus.core.domain.notes.FlushTrigger.EDITOR_CLOSE)
+
+            // Restoring produces a NEW snapshot of the version it replaced (Version 21 body)
+            val updatedRevisions = repository.listRevisions(noteId)
+            assertEquals(20, updatedRevisions.size)
+            assertEquals("Version 21 body", updatedRevisions.first().body)
+
+            // Note body is now restored to Version 5
+            assertEquals("Version 5 body", repository.readBody(noteId))
         }
 }

@@ -2,6 +2,7 @@ package com.locus.core.data.files
 
 import android.content.Context
 import android.net.Uri
+import com.locus.core.data.history.NoteHistoryStore
 import com.locus.core.domain.notes.Checksum
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.test.runTest
@@ -18,12 +19,12 @@ import java.io.File
 
 @RunWith(RobolectricTestRunner::class)
 class SafNoteFileWriterTest {
-    @get:Rule
-    val tempFolder = TemporaryFolder()
+    @get:Rule val tempFolder = TemporaryFolder()
 
     private lateinit var context: Context
     private lateinit var fileSource: AndroidSafNoteFileSource
     private lateinit var treeUriStore: TreeUriStore
+    private lateinit var historyStore: NoteHistoryStore
     private lateinit var writer: SafNoteFileWriter
 
     @Before
@@ -42,7 +43,8 @@ class SafNoteFileWriterTest {
                     treeUriFlow.value = uri
                 }
             }
-        writer = SafNoteFileWriter(context, fileSource, treeUriStore)
+        historyStore = NoteHistoryStore(context, fileSource, treeUriStore)
+        writer = SafNoteFileWriter(context, fileSource, treeUriStore, historyStore)
     }
 
     @Test
@@ -81,5 +83,61 @@ class SafNoteFileWriterTest {
             assertEquals("note-overwrite", receipt.noteId)
             assertEquals(expectedChecksum, receipt.checksum)
             assertEquals(newContent, targetFile.readText(Charsets.UTF_8))
+        }
+
+    @Test
+    fun atomicWrite_overwritesExistingFile_snapshotsPreFlushContentFirst() =
+        runTest {
+            val targetFile = File(tempFolder.root, "history-note.md")
+            targetFile.writeText("version 1 body", Charsets.UTF_8)
+
+            val result = writer.atomicWrite("note-hist", targetFile.absolutePath, "version 2 body")
+            assertTrue(result.isSuccess)
+
+            // The pre-flush content (version 1 body) must have been snapshotted
+            val revisions = historyStore.listRevisions("note-hist")
+            assertEquals(1, revisions.size)
+            assertEquals("version 1 body", revisions[0].body)
+        }
+
+    @Test
+    fun atomicWrite_whenHistorySnapshotFails_abortsWriteAndLeavesOriginalFileIntact() =
+        runTest {
+            val targetFile = File(tempFolder.root, "failing-snapshot-note.md")
+            val originalContent = "critical original content"
+            targetFile.writeText(originalContent, Charsets.UTF_8)
+
+            val failingHistoryStore =
+                object : NoteHistoryStore(context, fileSource, treeUriStore) {
+                    override suspend fun snapshot(
+                        noteId: String,
+                        previousBody: String,
+                        rootHint: File?,
+                    ): Unit = throw java.io.IOException("Disk full / snapshot failed")
+                }
+            val failingWriter =
+                SafNoteFileWriter(context, fileSource, treeUriStore, failingHistoryStore)
+
+            val result =
+                failingWriter.atomicWrite(
+                    "note-fail",
+                    targetFile.absolutePath,
+                    "malicious/corrupted body",
+                )
+            assertTrue(result.isFailure)
+
+            // Original file content must be completely untouched
+            assertEquals(originalContent, targetFile.readText(Charsets.UTF_8))
+        }
+
+    @Test
+    fun atomicWrite_creation_doesNotSnapshotHistory() =
+        runTest {
+            val targetFile = File(tempFolder.root, "new-created-note.md")
+            val result = writer.atomicWrite("note-new", targetFile.absolutePath, "initial body")
+            assertTrue(result.isSuccess)
+
+            val revisions = historyStore.listRevisions("note-new")
+            assertTrue(revisions.isEmpty())
         }
 }

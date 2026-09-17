@@ -51,4 +51,10 @@
     <string name="settings_folder_title">Notes folder</string>
     <string name="settings_change_folder">Change folder</string>
     <string name="no_folder_selected">No folder selected</string>
+    <string name="editor_more_options">More options</string>
+    <string name="editor_version_history">Version history</string>
+    <string name="history_title">Version history</string>
+    <string name="history_empty">No version history</string>
+    <string name="history_restore_button">Restore this version</string>
+    <string name="history_preview_title">Preview</string>
 </resources>

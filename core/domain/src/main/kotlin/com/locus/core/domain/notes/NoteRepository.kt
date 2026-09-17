@@ -64,4 +64,6 @@ interface NoteRepository {
     fun observeRootUri(): Flow<String?> = kotlinx.coroutines.flow.flowOf(null)
 
     suspend fun setRootUri(uriString: String) {}
+
+    suspend fun listRevisions(noteId: String): List<HistoryRevision> = emptyList()
 }

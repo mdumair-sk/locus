@@ -4,11 +4,13 @@ import android.net.Uri
 import androidx.documentfile.provider.DocumentFile
 import com.locus.core.data.db.NoteDao
 import com.locus.core.data.db.NoteIndexEntity
+import com.locus.core.data.history.NoteHistoryStore
 import com.locus.core.domain.notes.Checksum
 import com.locus.core.domain.notes.FileFallbackMetadata
 import com.locus.core.domain.notes.FlushReceipt
 import com.locus.core.domain.notes.FlushTrigger
 import com.locus.core.domain.notes.FrontmatterParser
+import com.locus.core.domain.notes.HistoryRevision
 import com.locus.core.domain.notes.IndexUpdateQueue
 import com.locus.core.domain.notes.Note
 import com.locus.core.domain.notes.NoteFileWriter
@@ -38,6 +40,7 @@ import java.util.concurrent.ConcurrentHashMap
 import javax.inject.Inject
 import javax.inject.Singleton
 
+@Suppress("LongParameterList", "TooManyFunctions")
 @Singleton
 class SafNoteRepository
     @Inject
@@ -48,6 +51,7 @@ class SafNoteRepository
         private val coordinator: NoteFlushCoordinator,
         private val noteDao: NoteDao,
         private val trashManager: TrashManager,
+        private val historyStore: NoteHistoryStore,
     ) : NoteRepository {
         internal var clock: Clock = Clock { Instant.now() }
 
@@ -64,6 +68,7 @@ class SafNoteRepository
             coordinator = coordinator,
             noteDao = noteDao,
             trashManager = createFallbackTrashManager(fileSource, parser, noteDao),
+            historyStore = createFallbackHistoryStore(fileSource, treeUriStore),
         )
 
         constructor(
@@ -73,6 +78,7 @@ class SafNoteRepository
             coordinator: NoteFlushCoordinator? = null,
             noteDao: NoteDao? = null,
             trashManager: TrashManager? = null,
+            historyStore: NoteHistoryStore? = null,
         ) : this(
             fileSource = fileSource,
             parser = parser,
@@ -96,6 +102,22 @@ class SafNoteRepository
                         fileSource,
                         parser,
                         noteDao ?: createFallbackNoteDao(),
+                    ),
+            historyStore =
+                historyStore
+                    ?: createFallbackHistoryStore(
+                        fileSource,
+                        object : TreeUriStore {
+                            private var uri: Uri? = initialTreeUri
+                            override val treeUriFlow = MutableStateFlow(initialTreeUri)
+
+                            override suspend fun getTreeUri(): Uri? = uri
+
+                            override suspend fun setTreeUri(uri: Uri) {
+                                this.uri = uri
+                                treeUriFlow.value = uri
+                            }
+                        },
                     ),
         ) {
             overrideTreeUri = initialTreeUri
@@ -210,6 +232,8 @@ class SafNoteRepository
                 val effectiveUri = overrideTreeUri ?: treeUri
                 trashManager.loadTrashNotes(effectiveUri)
             }
+
+        override suspend fun listRevisions(noteId: String): List<HistoryRevision> = historyStore.listRevisions(noteId)
 
         override suspend fun createFolder(
             parentPath: String,
@@ -612,6 +636,11 @@ class SafNoteRepository
                 parser: FrontmatterParser,
                 noteDao: NoteDao,
             ): TrashManager = TrashManager(fileSource, parser, noteDao)
+
+            fun createFallbackHistoryStore(
+                fileSource: SafNoteFileSource,
+                treeUriStore: TreeUriStore,
+            ): NoteHistoryStore = NoteHistoryStore(fileSource, treeUriStore)
         }
     }
 
