@@ -31,8 +31,8 @@ android {
                         "-DLLAMA_BUILD_TOOLS=OFF",
                         "-DLLAMA_BUILD_EXAMPLES=OFF",
                         "-DLLAMA_BUILD_SERVER=OFF",
-                        "-DLLAMA_BUILD_APP=OFF"
-                    )
+                        "-DLLAMA_BUILD_APP=OFF",
+                    ),
                 )
             }
         }
@@ -60,8 +60,10 @@ dependencies {
     implementation(libs.coroutines.core)
     implementation(libs.coroutines.android)
     implementation(libs.okhttp)
+    implementation(libs.okhttp.sse)
 
     testImplementation(libs.junit)
     testImplementation(libs.coroutines.test)
     testImplementation(libs.robolectric)
+    testImplementation(libs.mockwebserver)
 }
