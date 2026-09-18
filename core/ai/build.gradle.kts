@@ -1,3 +1,5 @@
+import java.util.Properties
+
 plugins {
     alias(libs.plugins.android.library)
     alias(libs.plugins.kotlin.android)
@@ -6,13 +8,28 @@ plugins {
     alias(libs.plugins.kotlin.serialization)
 }
 
+val localProperties = Properties()
+val localPropertiesFile = rootProject.file("local.properties")
+if (localPropertiesFile.exists()) {
+    localProperties.load(localPropertiesFile.inputStream())
+}
+val devApiKey = localProperties.getProperty("LOCUS_DEV_API_KEY", "")
+val devModel = localProperties.getProperty("LOCUS_DEV_MODEL", "gemini-3.5-flash-lite")
+
 android {
     namespace = "com.locus.core.ai"
     compileSdk = 35
     ndkVersion = "26.3.11579264"
 
+    buildFeatures {
+        buildConfig = true
+    }
+
     defaultConfig {
         minSdk = 31
+
+        buildConfigField("String", "DEV_API_KEY", "\"$devApiKey\"")
+        buildConfigField("String", "DEV_MODEL", "\"$devModel\"")
 
         ndk { abiFilters.addAll(listOf("arm64-v8a", "x86_64")) }
 

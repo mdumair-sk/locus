@@ -1,8 +1,10 @@
 package com.locus.core.ai.di
 
+import com.locus.core.ai.BuildConfig
 import com.locus.core.ai.embedding.EmbeddingRunner
 import com.locus.core.ai.llama.LlamaRuntime
 import com.locus.core.ai.llama.ModelDownloader
+import com.locus.core.ai.providers.GeminiAdapter
 import com.locus.core.ai.providers.OpenAiCompatibleAdapter
 import com.locus.core.domain.providers.ProviderAdapter
 import com.locus.core.domain.search.EmbeddingGateway
@@ -66,9 +68,17 @@ abstract class AiModule {
         @Provides
         @Singleton
         fun provideProviderAdapter(client: OkHttpClient): ProviderAdapter =
-            OpenAiCompatibleAdapter(
-                baseUrl = "https://api.openai.com/v1",
-                client = client,
-            )
+            if (BuildConfig.DEV_API_KEY.isNotBlank()) {
+                GeminiAdapter(
+                    apiKey = BuildConfig.DEV_API_KEY,
+                    model = BuildConfig.DEV_MODEL.ifBlank { "gemini-3.5-flash-lite" },
+                    client = client,
+                )
+            } else {
+                OpenAiCompatibleAdapter(
+                    baseUrl = "https://api.openai.com/v1",
+                    client = client,
+                )
+            }
     }
 }
