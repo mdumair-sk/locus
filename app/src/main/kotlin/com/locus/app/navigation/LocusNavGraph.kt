@@ -25,6 +25,7 @@ import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
 import com.locus.app.R
+import com.locus.app.ui.chat.ChatScreen
 import com.locus.app.ui.editor.EditorScreen
 import com.locus.app.ui.grid.GridScreen
 import com.locus.app.ui.search.SearchScreen
@@ -90,9 +91,7 @@ fun LocusNavGraph(
             navController = navController,
             startDestination = startDestination,
             modifier = Modifier.padding(innerPadding),
-        ) {
-            locusNavGraph(navController)
-        }
+        ) { locusNavGraph(navController) }
     }
 }
 
@@ -102,9 +101,8 @@ private fun NavGraphBuilder.locusNavGraph(navController: NavHostController) {
             onNavigateToEditor = { noteId ->
                 navController.navigate(LocusDestinations.editorRoute(noteId))
             },
-            onNavigateToSearch = {
-                navController.navigate(LocusDestinations.SEARCH_ROUTE)
-            },
+            onNavigateToSearch = { navController.navigate(LocusDestinations.SEARCH_ROUTE) },
+            onNavigateToChat = { navController.navigate(LocusDestinations.CHAT_ROUTE) },
         )
     }
     composable(LocusDestinations.TREE_ROUTE) {
@@ -116,9 +114,7 @@ private fun NavGraphBuilder.locusNavGraph(navController: NavHostController) {
     }
     composable(LocusDestinations.SETTINGS_ROUTE) {
         SettingsScreen(
-            onNavigateToTrash = {
-                navController.navigate(LocusDestinations.TRASH_ROUTE)
-            },
+            onNavigateToTrash = { navController.navigate(LocusDestinations.TRASH_ROUTE) },
         )
     }
     composable(LocusDestinations.SEARCH_ROUTE) {
@@ -126,16 +122,12 @@ private fun NavGraphBuilder.locusNavGraph(navController: NavHostController) {
             onNavigateToEditor = { noteId ->
                 navController.navigate(LocusDestinations.editorRoute(noteId))
             },
-            onNavigateBack = {
-                navController.popBackStack()
-            },
+            onNavigateBack = { navController.popBackStack() },
         )
     }
     composable(LocusDestinations.TRASH_ROUTE) {
         TrashScreen(
-            onNavigateBack = {
-                navController.popBackStack()
-            },
+            onNavigateBack = { navController.popBackStack() },
         )
     }
     composable(
@@ -150,8 +142,17 @@ private fun NavGraphBuilder.locusNavGraph(navController: NavHostController) {
         val noteId = backStackEntry.arguments?.getString(LocusDestinations.NOTE_ID_ARG).orEmpty()
         EditorScreen(
             noteId = noteId,
-            onNavigateBack = {
-                navController.popBackStack()
+            onNavigateBack = { navController.popBackStack() },
+            onNavigateToNote = { targetId ->
+                navController.navigate(LocusDestinations.editorRoute(targetId))
+            },
+        )
+    }
+    composable(LocusDestinations.CHAT_ROUTE) {
+        ChatScreen(
+            onNavigateBack = { navController.popBackStack() },
+            onNavigateToEditor = { noteId ->
+                navController.navigate(LocusDestinations.editorRoute(noteId))
             },
         )
     }

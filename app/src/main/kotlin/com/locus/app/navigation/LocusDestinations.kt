@@ -7,6 +7,7 @@ object LocusDestinations {
     const val SEARCH_ROUTE = "search"
     const val TRASH_ROUTE = "trash"
     const val EDITOR_ROUTE = "editor/{noteId}"
+    const val CHAT_ROUTE = "chat"
 
     const val NOTE_ID_ARG = "noteId"
 

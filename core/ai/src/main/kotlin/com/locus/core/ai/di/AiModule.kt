@@ -3,6 +3,8 @@ package com.locus.core.ai.di
 import com.locus.core.ai.embedding.EmbeddingRunner
 import com.locus.core.ai.llama.LlamaRuntime
 import com.locus.core.ai.llama.ModelDownloader
+import com.locus.core.ai.providers.OpenAiCompatibleAdapter
+import com.locus.core.domain.providers.ProviderAdapter
 import com.locus.core.domain.search.EmbeddingGateway
 import dagger.Binds
 import dagger.Module
@@ -60,5 +62,13 @@ abstract class AiModule {
         @Provides
         @Singleton
         fun provideOkHttpClient(): OkHttpClient = OkHttpClient.Builder().build()
+
+        @Provides
+        @Singleton
+        fun provideProviderAdapter(client: OkHttpClient): ProviderAdapter =
+            OpenAiCompatibleAdapter(
+                baseUrl = "https://api.openai.com/v1",
+                client = client,
+            )
     }
 }

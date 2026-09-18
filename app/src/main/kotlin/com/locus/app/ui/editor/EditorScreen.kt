@@ -57,6 +57,7 @@ fun EditorScreen(
     noteId: String,
     onNavigateBack: () -> Unit,
     modifier: Modifier = Modifier,
+    onNavigateToNote: ((noteId: String) -> Unit)? = null,
     viewModel: EditorViewModel = hiltViewModel(),
 ) {
     val lifecycleOwner = LocalLifecycleOwner.current
@@ -88,6 +89,7 @@ fun EditorScreen(
             onTitleChange = { viewModel.onTitleChange(it) },
             onDeleteNote = { viewModel.deleteNote(onDeleted = onNavigateBack) },
             onOpenHistory = { showHistorySheet = true },
+            onNavigateToNote = onNavigateToNote,
         )
     EditorContent(
         uiState = uiState,
@@ -114,6 +116,7 @@ private data class EditorActions(
     val onTitleChange: (String) -> Unit,
     val onDeleteNote: () -> Unit,
     val onOpenHistory: () -> Unit,
+    val onNavigateToNote: ((String) -> Unit)? = null,
 )
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -172,6 +175,7 @@ private fun EditorContent(
                             actions.onBodyChange(updated)
                         },
                         modifier = Modifier.fillMaxSize(),
+                        onNoteClick = actions.onNavigateToNote,
                     )
                 }
             } else {

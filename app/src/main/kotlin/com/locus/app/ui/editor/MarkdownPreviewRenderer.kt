@@ -1,6 +1,7 @@
 package com.locus.app.ui.editor
 
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -16,10 +17,18 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.TextLayoutResult
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
@@ -29,7 +38,19 @@ import androidx.compose.ui.unit.dp
 private val CHECKBOX_LINE_REGEX = Regex("""^\s*[-*+]\s+\[([ xX])\]\s*(.*)$""")
 private val BULLET_LINE_REGEX = Regex("""^\s*[-*+]\s+(.*)$""")
 private val NUMBERED_LINE_REGEX = Regex("""^\s*(\d+\.)\s+(.*)$""")
-private val INLINE_TOKEN_REGEX = Regex("""(`[^`\n]+`|\*\*[^*\n]+\*\*|\*[^*\n]+\*)""")
+private const val LINK_COLOR_VALUE = 0xFF1976D2
+private val LINK_SPAN_STYLE =
+    SpanStyle(
+        color = Color(LINK_COLOR_VALUE),
+        textDecoration = TextDecoration.Underline,
+    )
+
+private val INLINE_TOKEN_REGEX =
+    Regex(
+        """(`[^`\n]+`|\*\*[^*\n]+\*\*|\*[^*\n]+\*|""" +
+            """\[\[([^\]\n|]+)(?:\|([^\]\n]+))?\]\]|""" +
+            """\[([^\]\n]+)\]\(([^)\n]+)\))""",
+    )
 
 /** Parses inline markdown spans: `code`, **bold**, and *italic*. */
 fun parseInlineMarkdown(text: String): AnnotatedString {
@@ -42,32 +63,11 @@ fun parseInlineMarkdown(text: String): AnnotatedString {
             builder.append(text.substring(lastIndex, match.range.first))
         }
         val token = match.value
-        val startIdx = builder.length
         when {
-            token.startsWith("`") && token.endsWith("`") -> {
-                builder.append(token.removeSurrounding("`"))
-                builder.addStyle(
-                    SpanStyle(fontFamily = FontFamily.Monospace),
-                    startIdx,
-                    builder.length,
-                )
-            }
-            token.startsWith("**") && token.endsWith("**") -> {
-                builder.append(token.removeSurrounding("**"))
-                builder.addStyle(
-                    SpanStyle(fontWeight = FontWeight.Bold),
-                    startIdx,
-                    builder.length,
-                )
-            }
-            token.startsWith("*") && token.endsWith("*") -> {
-                builder.append(token.removeSurrounding("*"))
-                builder.addStyle(
-                    SpanStyle(fontStyle = FontStyle.Italic),
-                    startIdx,
-                    builder.length,
-                )
-            }
+            token.startsWith("[[") && token.endsWith("]]") -> appendWikilink(builder, token)
+            token.startsWith("[") && token.contains("](") && token.endsWith(")") ->
+                appendMarkdownLink(builder, token)
+            else -> appendStyledText(builder, token)
         }
         lastIndex = match.range.last + 1
     }
@@ -79,11 +79,76 @@ fun parseInlineMarkdown(text: String): AnnotatedString {
     return builder.toAnnotatedString()
 }
 
+private fun appendWikilink(
+    builder: AnnotatedString.Builder,
+    token: String,
+) {
+    val inner = token.removeSurrounding("[[", "]]")
+    val parts = inner.split("|", limit = 2)
+    val noteId = parts[0].trim()
+    val label = if (parts.size > 1 && parts[1].isNotBlank()) parts[1].trim() else noteId
+    val startIdx = builder.length
+    builder.append(label)
+    builder.addStyle(LINK_SPAN_STYLE, startIdx, builder.length)
+    builder.addStringAnnotation("NOTE_ID", noteId, startIdx, builder.length)
+}
+
+private fun appendMarkdownLink(
+    builder: AnnotatedString.Builder,
+    token: String,
+) {
+    val label = token.substringAfter("[").substringBeforeLast("](")
+    val url = token.substringAfterLast("](").removeSuffix(")")
+    val startIdx = builder.length
+    builder.append(label)
+    builder.addStyle(LINK_SPAN_STYLE, startIdx, builder.length)
+    if (url.startsWith("locus://note/") || url.startsWith("note:") || url.startsWith("editor/")) {
+        val noteId = url.substringAfterLast("/")
+        builder.addStringAnnotation("NOTE_ID", noteId, startIdx, builder.length)
+    }
+}
+
+private fun appendStyledText(
+    builder: AnnotatedString.Builder,
+    token: String,
+) {
+    val startIdx = builder.length
+    when {
+        token.startsWith("`") && token.endsWith("`") -> {
+            builder.append(token.removeSurrounding("`"))
+            builder.addStyle(
+                SpanStyle(fontFamily = FontFamily.Monospace),
+                startIdx,
+                builder.length,
+            )
+        }
+        token.startsWith("**") && token.endsWith("**") -> {
+            builder.append(token.removeSurrounding("**"))
+            builder.addStyle(
+                SpanStyle(fontWeight = FontWeight.Bold),
+                startIdx,
+                builder.length,
+            )
+        }
+        token.startsWith("*") && token.endsWith("*") -> {
+            builder.append(token.removeSurrounding("*"))
+            builder.addStyle(
+                SpanStyle(fontStyle = FontStyle.Italic),
+                startIdx,
+                builder.length,
+            )
+        }
+        else -> builder.append(token)
+    }
+    return
+}
+
 @Composable
 fun MarkdownPreview(
     body: String,
     onCheckboxToggle: (lineIndex: Int) -> Unit,
     modifier: Modifier = Modifier,
+    onNoteClick: ((noteId: String) -> Unit)? = null,
 ) {
     val lines = body.lines()
 
@@ -95,6 +160,7 @@ fun MarkdownPreview(
                 line = line,
                 lineIndex = index,
                 onCheckboxToggle = onCheckboxToggle,
+                onNoteClick = onNoteClick,
             )
         }
     }
@@ -105,6 +171,7 @@ private fun MarkdownLineItem(
     line: String,
     lineIndex: Int,
     onCheckboxToggle: (lineIndex: Int) -> Unit,
+    onNoteClick: ((noteId: String) -> Unit)? = null,
 ) {
     when {
         line.isBlank() -> Spacer(modifier = Modifier.height(8.dp))
@@ -121,21 +188,22 @@ private fun MarkdownLineItem(
         }
         BULLET_LINE_REGEX.matches(line) -> {
             val content = BULLET_LINE_REGEX.find(line)!!.groupValues[1]
-            BulletListLine(text = content)
+            BulletListLine(text = content, onNoteClick = onNoteClick)
         }
         NUMBERED_LINE_REGEX.matches(line) -> {
             val match = NUMBERED_LINE_REGEX.find(line)!!
             val prefix = match.groupValues[1]
             val content = match.groupValues[2]
-            NumberedListLine(prefix = prefix, text = content)
+            NumberedListLine(prefix = prefix, text = content, onNoteClick = onNoteClick)
         }
         line.startsWith("```") -> {
             FencedCodeMarker(marker = line)
         }
         else -> {
-            Text(
-                text = parseInlineMarkdown(line),
+            ClickableMarkdownText(
+                annotated = parseInlineMarkdown(line),
                 style = MaterialTheme.typography.bodyLarge,
+                onNoteClick = onNoteClick,
                 modifier = Modifier.fillMaxWidth().padding(vertical = 2.dp),
             )
         }
@@ -199,7 +267,10 @@ private fun CheckboxLine(
 }
 
 @Composable
-private fun BulletListLine(text: String) {
+private fun BulletListLine(
+    text: String,
+    onNoteClick: ((noteId: String) -> Unit)? = null,
+) {
     Row(
         modifier = Modifier.fillMaxWidth().padding(vertical = 2.dp),
         verticalAlignment = Alignment.Top,
@@ -210,9 +281,10 @@ private fun BulletListLine(text: String) {
             fontWeight = FontWeight.Bold,
             color = MaterialTheme.colorScheme.primary,
         )
-        Text(
-            text = parseInlineMarkdown(text),
+        ClickableMarkdownText(
+            annotated = parseInlineMarkdown(text),
             style = MaterialTheme.typography.bodyLarge,
+            onNoteClick = onNoteClick,
         )
     }
 }
@@ -221,6 +293,7 @@ private fun BulletListLine(text: String) {
 private fun NumberedListLine(
     prefix: String,
     text: String,
+    onNoteClick: ((noteId: String) -> Unit)? = null,
 ) {
     Row(
         modifier = Modifier.fillMaxWidth().padding(vertical = 2.dp),
@@ -231,9 +304,10 @@ private fun NumberedListLine(
             style = MaterialTheme.typography.bodyLarge,
             fontWeight = FontWeight.Bold,
         )
-        Text(
-            text = parseInlineMarkdown(text),
+        ClickableMarkdownText(
+            annotated = parseInlineMarkdown(text),
             style = MaterialTheme.typography.bodyLarge,
+            onNoteClick = onNoteClick,
         )
     }
 }
@@ -252,4 +326,36 @@ private fun FencedCodeMarker(marker: String) {
             modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
         )
     }
+}
+
+@Composable
+private fun ClickableMarkdownText(
+    annotated: AnnotatedString,
+    style: TextStyle,
+    modifier: Modifier = Modifier,
+    onNoteClick: ((noteId: String) -> Unit)? = null,
+) {
+    var textLayoutResult by remember { mutableStateOf<TextLayoutResult?>(null) }
+    Text(
+        text = annotated,
+        style = style,
+        modifier =
+            modifier.pointerInput(annotated, onNoteClick) {
+                if (onNoteClick != null) {
+                    detectTapGestures { pos ->
+                        textLayoutResult?.let { layout ->
+                            val offset = layout.getOffsetForPosition(pos)
+                            annotated
+                                .getStringAnnotations(
+                                    tag = "NOTE_ID",
+                                    start = offset,
+                                    end = offset,
+                                ).firstOrNull()
+                                ?.let { annotation -> onNoteClick(annotation.item) }
+                        }
+                    }
+                }
+            },
+        onTextLayout = { textLayoutResult = it },
+    )
 }

@@ -77,6 +77,7 @@ private const val SWATCHES_ROW_3_COUNT = 3
 data class GridActions(
     val onNavigateToEditor: (noteId: String) -> Unit,
     val onNavigateToSearch: () -> Unit,
+    val onNavigateToChat: () -> Unit = {},
     val onTogglePin: (noteId: String, pinned: Boolean) -> Unit,
     val onSetColor: (noteId: String, color: String?) -> Unit,
     val onSelectRootFolder: () -> Unit,
@@ -87,6 +88,7 @@ fun GridScreen(
     onNavigateToEditor: (noteId: String) -> Unit,
     onNavigateToSearch: () -> Unit,
     modifier: Modifier = Modifier,
+    onNavigateToChat: () -> Unit = {},
     viewModel: GridViewModel = hiltViewModel(),
 ) {
     val uiState by viewModel.uiState.collectAsState()
@@ -103,10 +105,11 @@ fun GridScreen(
         }
 
     val actions =
-        remember(viewModel, onNavigateToEditor, onNavigateToSearch) {
+        remember(viewModel, onNavigateToEditor, onNavigateToSearch, onNavigateToChat) {
             GridActions(
                 onNavigateToEditor = onNavigateToEditor,
                 onNavigateToSearch = onNavigateToSearch,
+                onNavigateToChat = onNavigateToChat,
                 onTogglePin = viewModel::setPinned,
                 onSetColor = viewModel::setColor,
                 onSelectRootFolder = { folderLauncher.launch(null) },
@@ -135,6 +138,12 @@ fun GridContent(
             TopAppBar(
                 title = { Text(text = stringResource(R.string.app_name)) },
                 actions = {
+                    IconButton(onClick = actions.onNavigateToChat) {
+                        Icon(
+                            painter = painterResource(R.drawable.ic_chat),
+                            contentDescription = stringResource(R.string.nav_chat),
+                        )
+                    }
                     IconButton(onClick = actions.onNavigateToSearch) {
                         Icon(
                             imageVector = Icons.Default.Search,
