@@ -15,6 +15,7 @@ import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.test.runTest
 import org.junit.After
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
@@ -80,6 +81,8 @@ class VectorStoreTest {
             noteId: String,
             chunks: List<ChunkEntity>,
         ) {}
+
+        override suspend fun hasChunks(): Boolean = allRows.isNotEmpty()
     }
 
     @Test
@@ -383,5 +386,38 @@ class VectorStoreTest {
             vectorStore.deleteAll()
             val remaining = chunkDao.getChunksByNoteId("n1")
             assertTrue(remaining.isEmpty())
+        }
+
+    @Test
+    fun isAvailable_returnsFalseWhenChunkTableIsEmpty() =
+        runTest {
+            val emptyStore = VectorStore(FakeChunkDao(emptyList()))
+            assertFalse(emptyStore.isAvailable())
+        }
+
+    @Test
+    fun isAvailable_returnsTrueWhenChunksExistAndModelLoadedAndNotRebuilding() =
+        runTest {
+            val tuples = listOf(ChunkEmbeddingTuple("c1", "n1", floatArrayOf(1.0f, 0.0f)))
+            val store = VectorStore(FakeChunkDao(tuples))
+            assertTrue(store.isAvailable())
+        }
+
+    @Test
+    fun isAvailable_returnsFalseWhenMidRebuild() =
+        runTest {
+            val tuples = listOf(ChunkEmbeddingTuple("c1", "n1", floatArrayOf(1.0f, 0.0f)))
+            val store = VectorStore(FakeChunkDao(tuples))
+            store.isRebuilding = true
+            assertFalse(store.isAvailable())
+        }
+
+    @Test
+    fun isAvailable_returnsFalseWhenModelNotLoaded() =
+        runTest {
+            val tuples = listOf(ChunkEmbeddingTuple("c1", "n1", floatArrayOf(1.0f, 0.0f)))
+            val store = VectorStore(FakeChunkDao(tuples))
+            store.isModelLoaded = { false }
+            assertFalse(store.isAvailable())
         }
 }

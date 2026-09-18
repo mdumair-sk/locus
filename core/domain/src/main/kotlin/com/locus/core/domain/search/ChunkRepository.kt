@@ -44,6 +44,8 @@ data class EmbeddedChunk(
 }
 
 interface ChunkRepository {
+    suspend fun isAvailable(): Boolean = true
+
     suspend fun getMetadata(noteId: String): ChunkMetadata?
 
     suspend fun replaceChunksForNote(

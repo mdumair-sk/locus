@@ -8,6 +8,9 @@ import androidx.room.Transaction
 
 @Dao
 interface ChunkDao {
+    @Query("SELECT EXISTS(SELECT 1 FROM chunks)")
+    suspend fun hasChunks(): Boolean
+
     @Query("SELECT sourceChecksum, embeddingModelId FROM chunks WHERE noteId = :noteId LIMIT 1")
     suspend fun getMetadata(noteId: String): ChunkMetadataTuple?
 

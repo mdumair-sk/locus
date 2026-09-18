@@ -31,6 +31,11 @@ class VectorStore
                 Provider { noteRepository ?: error("NoteRepository not provided") },
         )
 
+        var isRebuilding: Boolean = false
+        var isModelLoaded: () -> Boolean = { true }
+
+        override suspend fun isAvailable(): Boolean = !isRebuilding && isModelLoaded() && chunkDao.hasChunks()
+
         companion object {
             private const val MAX_SQL_NOTE_ID_PARAMS = 500
         }

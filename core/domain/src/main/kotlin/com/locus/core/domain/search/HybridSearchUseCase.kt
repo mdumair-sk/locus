@@ -20,6 +20,11 @@ data class PackedChunk(
         )
 }
 
+data class HybridSearchResult(
+    val results: List<SearchResult>,
+    val degraded: Boolean,
+)
+
 /**
  * Hybrid search use case (S-1, S-5, S-8):
  * 1. Runs keyword search and semantic vector search under the same [SearchScope].
@@ -51,18 +56,27 @@ class HybridSearchUseCase
             maxContextTokens: Int = DEFAULT_MAX_CONTEXT_TOKENS,
             maxChunksPerNote: Int = DEFAULT_MAX_CHUNKS_PER_NOTE,
             topK: Int = DEFAULT_TOP_K,
-        ): List<PackedChunk> {
+        ): HybridSearchResult {
             val trimmed = query.trim()
-            if (trimmed.isEmpty()) return emptyList()
+            if (trimmed.isEmpty()) return HybridSearchResult(results = emptyList(), degraded = false)
 
-            val (keywordResults, keywordRanked) = runKeywordPath(trimmed, scope)
-            val vectorRanked = runVectorPath(trimmed, scope, topK)
+            return if (!chunkRepository.isAvailable()) {
+                val keywordResults = keywordSearch.search(trimmed, scope)
+                HybridSearchResult(results = keywordResults, degraded = true)
+            } else {
+                val (keywordResults, keywordRanked) = runKeywordPath(trimmed, scope)
+                val vectorRanked = runVectorPath(trimmed, scope, topK)
 
-            val fusedResults = rrf.fuse(keywordRanked, vectorRanked)
-            val dedupedFused = deduplicateByNote(fusedResults, maxChunksPerNote)
-            val materialized = materializeContent(dedupedFused, keywordResults)
+                val fusedResults = rrf.fuse(keywordRanked, vectorRanked)
+                val dedupedFused = deduplicateByNote(fusedResults, maxChunksPerNote)
+                val materialized = materializeContent(dedupedFused, keywordResults)
+                val packed = packContext(materialized, maxContextTokens)
 
-            return packContext(materialized, maxContextTokens)
+                HybridSearchResult(
+                    results = packed.map { it.toSearchResult() },
+                    degraded = false,
+                )
+            }
         }
 
         private suspend fun runKeywordPath(

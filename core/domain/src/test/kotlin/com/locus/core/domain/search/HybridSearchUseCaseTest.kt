@@ -2,6 +2,7 @@ package com.locus.core.domain.search
 
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -19,12 +20,15 @@ class HybridSearchUseCaseTest {
     }
 
     private class FakeChunkRepository(
+        var isAvailable: Boolean = true,
         private val chunksMap: MutableMap<String, EmbeddedChunk> = mutableMapOf(),
         private val searchProvider: (queryVector: FloatArray, topK: Int, scope: SearchScope) -> List<RankedChunk> =
             { _, _, _ ->
                 emptyList()
             },
     ) : ChunkRepository {
+        override suspend fun isAvailable(): Boolean = isAvailable
+
         fun addChunk(chunk: EmbeddedChunk) {
             chunksMap[chunk.chunkId] = chunk
         }
@@ -127,15 +131,16 @@ class HybridSearchUseCaseTest {
                     embeddingGateway = FakeEmbeddingGateway(),
                 )
 
-            val results =
+            val hybridResult =
                 useCase(
                     query = "query",
                     scope = SearchScope(folderPaths = setOf("folderA")),
                 )
 
             // Assert: Only hits from folder A returned, 0 hits from folder B
+            assertFalse(hybridResult.degraded)
+            val results = hybridResult.results
             assertEquals(1, results.size)
-            assertEquals("chunk-A_0", results[0].chunkId)
             assertEquals("note-A", results[0].noteId)
             assertTrue(results.none { it.noteId == "note-B" })
         }
@@ -173,13 +178,15 @@ class HybridSearchUseCaseTest {
                 )
 
             // Total tokens = 15. Set maxContextTokens = 12 so only top 2 chunks (10 tokens) fit.
-            val results = useCase(query = "test", maxContextTokens = 12)
+            val hybridResult = useCase(query = "test", maxContextTokens = 12)
 
+            assertFalse(hybridResult.degraded)
+            val results = hybridResult.results
             assertEquals(2, results.size)
-            assertEquals("c_high", results[0].chunkId)
-            assertEquals("c_mid", results[1].chunkId)
-            // c_low (lowest fused score) must be dropped
-            assertTrue(results.none { it.chunkId == "c_low" })
+            assertEquals("note-1", results[0].noteId)
+            assertEquals("note-2", results[1].noteId)
+            // c_low (lowest fused score from note-3) must be dropped
+            assertTrue(results.none { it.noteId == "note-3" })
         }
 
     @Test
@@ -207,11 +214,13 @@ class HybridSearchUseCaseTest {
                 )
 
             // Cap at N = 2 chunks per note
-            val results = useCase(query = "test", maxChunksPerNote = 2)
+            val hybridResult = useCase(query = "test", maxChunksPerNote = 2)
 
+            assertFalse(hybridResult.degraded)
+            val results = hybridResult.results
             assertEquals(2, results.size)
-            assertEquals("note-1_0", results[0].chunkId)
-            assertEquals("note-1_1", results[1].chunkId)
+            assertEquals("Chunk 0 content text", results[0].snippet)
+            assertEquals("Chunk 1 content text", results[1].snippet)
             assertEquals(2, results.count { it.noteId == "note-1" })
         }
 
@@ -225,8 +234,12 @@ class HybridSearchUseCaseTest {
                     embeddingGateway = FakeEmbeddingGateway(),
                 )
 
-            assertTrue(useCase("").isEmpty())
-            assertTrue(useCase("   ").isEmpty())
+            val result1 = useCase("")
+            assertTrue(result1.results.isEmpty())
+            assertFalse(result1.degraded)
+            val result2 = useCase("   ")
+            assertTrue(result2.results.isEmpty())
+            assertFalse(result2.degraded)
         }
 
     @Test
@@ -263,13 +276,67 @@ class HybridSearchUseCaseTest {
                     embeddingGateway = FakeEmbeddingGateway(),
                 )
 
-            val results = useCase(query = "test")
+            val hybridResult = useCase(query = "test")
 
+            assertFalse(hybridResult.degraded)
+            val results = hybridResult.results
             assertEquals(2, results.size)
-            assertEquals("chunk-both", results[0].chunkId)
+            assertEquals("note-1", results[0].noteId)
             assertTrue(
                 "Chunk in both paths should outrank chunk in single path",
                 results[0].score > results[1].score,
+            )
+        }
+
+    @Test
+    fun vectorStoreUnavailableFallsBackToKeywordOnlyWithDegradedTrue() =
+        runTest {
+            val keywordResults =
+                listOf(
+                    SearchResult("note-kw-1", "Title 1", "Keyword snippet 1", 1.0),
+                    SearchResult("note-kw-2", "Title 2", "Keyword snippet 2", 0.8),
+                )
+            var keywordSearchCalled = false
+            val keywordSearch =
+                FakeKeywordSearch { _, _ ->
+                    keywordSearchCalled = true
+                    keywordResults
+                }
+
+            var vectorSearchCalled = false
+            var embedCalled = false
+            val chunkRepo =
+                FakeChunkRepository(
+                    isAvailable = false,
+                    searchProvider = { _, _, _ ->
+                        vectorSearchCalled = true
+                        emptyList()
+                    },
+                )
+            val embeddingGateway =
+                object : EmbeddingGateway {
+                    override suspend fun embed(text: String): FloatArray {
+                        embedCalled = true
+                        return floatArrayOf(1.0f, 0.0f)
+                    }
+                }
+
+            val useCase =
+                HybridSearchUseCase(
+                    keywordSearch = keywordSearch,
+                    chunkRepository = chunkRepo,
+                    embeddingGateway = embeddingGateway,
+                )
+
+            val result = useCase(query = "important topic")
+
+            assertTrue("Expected degraded to be true when vector index is unavailable", result.degraded)
+            assertEquals(keywordResults, result.results)
+            assertTrue("Keyword search should have been invoked", keywordSearchCalled)
+            assertFalse("Vector search should NOT be attempted when unavailable", vectorSearchCalled)
+            assertFalse(
+                "Embedding gateway should NOT be called when vector leg is skipped",
+                embedCalled,
             )
         }
 }
