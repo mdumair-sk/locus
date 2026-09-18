@@ -91,8 +91,7 @@ class RagAnswerUseCase(
                 providerAdapter
             }
 
-        val searchResult = hybridSearch(query = query, scope = scope)
-        val chunks = searchResult.results
+        val chunks = resolveSearchChunks(query = query, scope = scope, history = history)
 
         val systemPrompt = buildSystemPrompt(chunks)
         val messages =
@@ -154,17 +153,24 @@ class RagAnswerUseCase(
     }
 
     private suspend fun buildSystemPrompt(chunks: List<SearchResult>): String {
+        if (chunks.isEmpty()) {
+            return """
+                You are an assistant answering questions based on the user's notes.
+                No relevant notes or context chunks were found for this user query.
+                If the user is asking a question about information that would be found in their notes (such as facts, dates, costs, tasks, names, or events), you MUST state clearly and concisely that you could not find any relevant information in their notes.
+                DO NOT guess, fabricate, assume, or invent any numbers, costs, dates, or factual details.
+                If the user is merely greeting you or asking general conversational questions (e.g. 'hello', 'who are you', 'how does this work'), you may respond politely and invite them to ask about their notes.
+                """.trimIndent()
+        }
+
         val instructions =
             """
-            You are an assistant answering questions based on the user's notes.
-            Citations are mandatory on all RAG answers: inline [n] markers plus a Sources block; each citation is tappable and navigates to the note.
-            Cite every claim with [n] referencing the numbered context chunks below.
-            Only reference source numbers that exist in the context list. Do not cite numbers outside this range.
+            You are an assistant answering questions based strictly on the user's notes.
+            Answer the question using ONLY the provided context chunks below.
+            If the provided context chunks do not contain enough information to answer the question, state that you cannot find this information in the notes. Never make up or infer information not directly supported by the context chunks.
+            Citations are mandatory: every factual claim MUST include an inline citation [n] matching the corresponding context chunk number.
+            Only cite numbers that exist in the context list (e.g. [1], [2]). Do not cite numbers outside this range.
             """.trimIndent()
-
-        if (chunks.isEmpty()) {
-            return instructions
-        }
 
         val context =
             chunks
@@ -247,6 +253,26 @@ class RagAnswerUseCase(
             }
             append("User: $query\nAssistant:")
         }
+
+    private suspend fun resolveSearchChunks(
+        query: String,
+        scope: SearchScope,
+        history: List<ProviderMessage>,
+    ): List<SearchResult> {
+        val initial = hybridSearch(query = query, scope = scope)
+        if (initial.results.isNotEmpty() || history.isEmpty()) {
+            return initial.results
+        }
+        val lastUserMessage =
+            history.findLast { it.role == ProviderRole.USER && it.content.isNotBlank() }?.content
+        val contextual =
+            if (!lastUserMessage.isNullOrBlank()) {
+                hybridSearch(query = "$lastUserMessage $query", scope = scope)
+            } else {
+                null
+            }
+        return contextual?.results?.ifEmpty { initial.results } ?: initial.results
+    }
 
     companion object {
         private const val MAX_CHUNK_PREVIEW_LENGTH = 4000

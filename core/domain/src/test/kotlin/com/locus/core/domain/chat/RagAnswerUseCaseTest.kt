@@ -448,4 +448,94 @@ class RagAnswerUseCaseTest {
             assertEquals(1, answer.sources.size)
             assertEquals(0, cloudAdapter.lastRecordedMessages.size)
         }
+
+    @Test
+    fun ragAnswerUseCase_whenChunksEmpty_includesNegativeGroundingInPrompt() =
+        runTest {
+            val (useCase, adapter) =
+                createUseCase(
+                    searchResults = emptyList(),
+                    cannedEvents =
+                        listOf(StreamEvent.TokenDelta("I cannot find that in your notes.")),
+                )
+
+            val answer = useCase(query = "what is my passport number?")
+
+            val systemMsg =
+                adapter.lastRecordedMessages.firstOrNull { it.role == ProviderRole.SYSTEM }?.content
+            assertTrue(
+                "System prompt must include negative grounding",
+                systemMsg?.contains("DO NOT guess, fabricate") == true,
+            )
+            assertTrue(
+                "System prompt must note no chunks found",
+                systemMsg?.contains("No relevant notes or context chunks were found") == true,
+            )
+            assertEquals("I cannot find that in your notes.", answer.text)
+            assertEquals(0, answer.sources.size)
+        }
+
+    @Test
+    fun ragAnswerUseCase_whenFollowUpQueryReturnsZeroChunks_retriesWithContextualQuery() =
+        runTest {
+            val noteResult =
+                SearchResult(
+                    noteId = "bike-1",
+                    title = "bike refuel date",
+                    snippet = "bike refueled - 8 sept 2026 - 1241.43 INR",
+                    headingPath = emptyList(),
+                )
+
+            val dynamicSearch =
+                object : KeywordSearch {
+                    override suspend fun search(
+                        query: String,
+                        scope: SearchScope,
+                    ): List<SearchResult> =
+                        if (query.contains("bike refuel")) {
+                            listOf(noteResult)
+                        } else {
+                            emptyList()
+                        }
+                }
+
+            val hybridSearch =
+                HybridSearchUseCase(
+                    keywordSearch = dynamicSearch,
+                    chunkRepository = UnavailableChunkRepository(),
+                    embeddingGateway = DummyEmbeddingGateway(),
+                )
+
+            var recordedPrompt: String? = null
+            val adapter =
+                FakeProviderAdapter { msgs ->
+                    recordedPrompt = msgs.firstOrNull { it.role == ProviderRole.SYSTEM }?.content
+                    listOf(StreamEvent.TokenDelta("The cost was 1241.43 INR [1]."))
+                }
+
+            val useCase =
+                RagAnswerUseCase(
+                    hybridSearch = hybridSearch,
+                    providerAdapter = adapter,
+                )
+
+            val history =
+                listOf(
+                    ProviderMessage(role = ProviderRole.USER, content = "bike refuel date"),
+                    ProviderMessage(
+                        role = ProviderRole.ASSISTANT,
+                        content = "Your bike was refueled on 8 Sept 2026.",
+                    ),
+                )
+
+            val answer = useCase(query = "what was the cost", history = history)
+
+            assertEquals("The cost was 1241.43 INR [1].", answer.text)
+            assertEquals(1, answer.sources.size)
+            assertEquals("bike refuel date", answer.sources[0].noteTitle)
+            assertTrue(
+                "Prompt must contain the retrieved note chunk",
+                recordedPrompt?.contains("1241.43 INR") == true,
+            )
+        }
 }
