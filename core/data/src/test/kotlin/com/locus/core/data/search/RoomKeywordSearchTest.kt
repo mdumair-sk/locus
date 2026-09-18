@@ -285,4 +285,30 @@ class RoomKeywordSearchTest {
             val emptyResults = search.search("AND OR NOT () \"", SearchScope())
             assertTrue(emptyResults.isEmpty())
         }
+
+    @Test
+    fun searchNaturalLanguageQuestionWithStopWordsFindsMatchingNote() =
+        runTest {
+            val now = Instant.ofEpochMilli(1_700_000_000_000L)
+            val bikeNote =
+                NoteIndexEntity(
+                    id = "bike-note-id",
+                    title = "bike refuel date",
+                    type = NoteType.NOTE,
+                    folderPath = "",
+                    pinned = false,
+                    color = null,
+                    tags = emptyList(),
+                    created = now,
+                    modified = now,
+                    checksum = "cs-bike",
+                    bodyPreview = "bike refueled - 8 sept 2026 - 1241.43 rs",
+                )
+            noteDao.upsert(bikeNote)
+
+            val results = search.search("when was my bike refueled?", SearchScope())
+            assertEquals(1, results.size)
+            assertEquals("bike-note-id", results[0].noteId)
+            assertEquals("bike refuel date", results[0].title)
+        }
 }

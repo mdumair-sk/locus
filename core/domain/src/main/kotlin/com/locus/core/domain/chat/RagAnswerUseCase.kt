@@ -1,5 +1,6 @@
 package com.locus.core.domain.chat
 
+import com.locus.core.domain.notes.NoteRepository
 import com.locus.core.domain.providers.ProviderAdapter
 import com.locus.core.domain.providers.ProviderMessage
 import com.locus.core.domain.providers.ProviderRole
@@ -32,18 +33,32 @@ class RagAnswerUseCase(
     private val providerAdapter: ProviderAdapter,
     private val routingPolicy: ChatRoutingPolicy? = null,
     private val adapterResolver: ((ModelRef) -> ProviderAdapter)? = null,
+    private val noteRepository: NoteRepository? = null,
 ) {
     @Inject
     constructor(
         hybridSearch: HybridSearchUseCase,
         providerAdapter: ProviderAdapter,
-    ) : this(hybridSearch, providerAdapter, null, null)
+        noteRepository: NoteRepository,
+    ) : this(hybridSearch, providerAdapter, null, null, noteRepository)
+
+    constructor(
+        hybridSearch: HybridSearchUseCase,
+        providerAdapter: ProviderAdapter,
+    ) : this(hybridSearch, providerAdapter, null, null, null)
 
     constructor(
         hybridSearch: HybridSearchUseCase,
         providerAdapter: ProviderAdapter,
         routingPolicy: ChatRoutingPolicy?,
-    ) : this(hybridSearch, providerAdapter, routingPolicy, null)
+    ) : this(hybridSearch, providerAdapter, routingPolicy, null, null)
+
+    constructor(
+        hybridSearch: HybridSearchUseCase,
+        providerAdapter: ProviderAdapter,
+        routingPolicy: ChatRoutingPolicy?,
+        adapterResolver: ((ModelRef) -> ProviderAdapter)?,
+    ) : this(hybridSearch, providerAdapter, routingPolicy, adapterResolver, null)
 
     suspend operator fun invoke(
         query: String,
@@ -114,7 +129,7 @@ class RagAnswerUseCase(
         )
     }
 
-    private fun buildSystemPrompt(chunks: List<SearchResult>): String {
+    private suspend fun buildSystemPrompt(chunks: List<SearchResult>): String {
         val instructions =
             """
             You are an assistant answering questions based on the user's notes.
@@ -136,7 +151,21 @@ class RagAnswerUseCase(
                         } else {
                             ""
                         }
-                    "[${index + 1}] Title: ${chunk.title}\n${headingLine}Content: ${chunk.snippet}"
+                    val repo = noteRepository
+                    val fullBody =
+                        if (repo != null) {
+                            runCatching { repo.readBody(chunk.noteId) }.getOrNull()
+                        } else {
+                            null
+                        }
+                    val rawContent = if (!fullBody.isNullOrBlank()) fullBody else chunk.snippet
+                    val contentText =
+                        if (rawContent.length > MAX_CHUNK_PREVIEW_LENGTH) {
+                            rawContent.take(MAX_CHUNK_PREVIEW_LENGTH)
+                        } else {
+                            rawContent
+                        }
+                    "[${index + 1}] Title: ${chunk.title}\n${headingLine}Content: $contentText"
                 }.joinToString("\n\n")
 
         return "$instructions\n\nContext:\n$context"
@@ -177,6 +206,7 @@ class RagAnswerUseCase(
     }
 
     companion object {
+        private const val MAX_CHUNK_PREVIEW_LENGTH = 4000
         private val CITATION_REGEX = Regex("""(\s*)\[(\d+)\]""")
     }
 }

@@ -1,8 +1,13 @@
 package com.locus.core.domain.chat
 
+import com.locus.core.domain.notes.Note
+import com.locus.core.domain.notes.NoteRepository
+import com.locus.core.domain.notes.NoteType
+import com.locus.core.domain.notes.RescanReport
 import com.locus.core.domain.providers.ProviderAdapter
 import com.locus.core.domain.providers.ProviderCapabilities
 import com.locus.core.domain.providers.ProviderMessage
+import com.locus.core.domain.providers.ProviderRole
 import com.locus.core.domain.providers.StreamEvent
 import com.locus.core.domain.providers.ToolSchema
 import com.locus.core.domain.search.ChunkMetadata
@@ -293,5 +298,83 @@ class RagAnswerUseCaseTest {
 
             assertEquals(listOf("Real ", "time ", "streaming [1]."), receivedDeltas)
             assertTrue(answer.text.contains("[1]"))
+        }
+
+    @Test
+    fun ragAnswerUseCaseUsesFullBodyFromNoteRepositoryWhenAvailable() =
+        runTest {
+            val chunk =
+                SearchResult(
+                    noteId = "note-full-1",
+                    title = "Bike Maintenance",
+                    snippet = "bike refueled...",
+                )
+            val hybridSearch =
+                HybridSearchUseCase(
+                    keywordSearch = FakeKeywordSearch(listOf(chunk)),
+                    chunkRepository = UnavailableChunkRepository(),
+                    embeddingGateway = DummyEmbeddingGateway(),
+                )
+            val fakeNoteRepo =
+                object : NoteRepository {
+                    override fun observeNotesInFolder(folderPath: String): Flow<List<Note>> = error("unused")
+
+                    override fun observeAllNotes(): Flow<List<Note>> = error("unused")
+
+                    override suspend fun readBody(noteId: String): String {
+                        val content = "bike refueled on 8 sept 2026 for 1241.43 rs at shell station"
+                        return content
+                    }
+
+                    override suspend fun listFolders(): List<String> = emptyList()
+
+                    override suspend fun createFolder(
+                        parentPath: String,
+                        name: String,
+                    ) = Unit
+
+                    override suspend fun createNote(
+                        folderPath: String,
+                        title: String,
+                        type: NoteType,
+                    ): Note = error("unused")
+
+                    override suspend fun edit(
+                        noteId: String,
+                        newBody: String,
+                    ) = Unit
+
+                    override suspend fun setPinned(
+                        noteId: String,
+                        pinned: Boolean,
+                    ) = Unit
+
+                    override suspend fun setColor(
+                        noteId: String,
+                        color: String?,
+                    ) = Unit
+
+                    override suspend fun rescan(): RescanReport = RescanReport(0, 0, 0)
+                }
+            val adapter =
+                FakeProviderAdapter {
+                    createCannedTokens("Your bike was refueled on 8 Sept 2026 [1].")
+                }
+            val useCase =
+                RagAnswerUseCase(
+                    hybridSearch = hybridSearch,
+                    providerAdapter = adapter,
+                    noteRepository = fakeNoteRepo,
+                )
+
+            val answer = useCase(query = "when was my bike refueled?")
+
+            assertTrue(answer.text.contains("[1]"))
+            val systemPrompt =
+                adapter.lastRecordedMessages.firstOrNull { it.role == ProviderRole.SYSTEM }?.content
+            assertTrue(
+                "System prompt should contain full body from NoteRepository",
+                systemPrompt?.contains("1241.43 rs at shell station") == true,
+            )
         }
 }
