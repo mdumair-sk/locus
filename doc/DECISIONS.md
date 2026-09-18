@@ -11,3 +11,5 @@
 ## D-5: EmbeddingGemma-300M produces 768-d native embeddings; EmbeddingRunner reduces this to the S-2 specified fixed 512-d output via uniform binning / mean-pooling over the extra dimensions (for $i \in [0, 511]$, averaging dimensions $i + 512 \times k < D$) followed by L2-normalization, preserving energy across all native dimensions while matching the fixed 512-d vector contract.
 
 ## D-5: Phase 1's Chat/RAG routing has no local fallback leg yet (no local chat model exists until Phase 2); P-4 is completed in Prompt 52.
+
+## D-6: One model resident at a time in LlamaRuntime (M-1). Loading a chat model unloads any resident embedding model and vice-versa. This is a deliberate v1 simplification matching M-1's "CPU-first" resource-conscious framing on mobile devices to constrain RAM usage, not a limitation of the M-1 architecture itself.

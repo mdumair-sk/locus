@@ -1,12 +1,26 @@
 package com.locus.core.ai.llama
 
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.buffer
+import kotlinx.coroutines.flow.channelFlow
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import java.io.File
 import javax.inject.Inject
 import javax.inject.Singleton
+
+enum class ModelKind {
+    CHAT,
+    EMBEDDING,
+}
+
+fun interface TokenCallback {
+    fun onToken(token: String): Boolean
+}
 
 /**
  * Mutex-guarded single-model-loaded runtime bridging to native llama.cpp JNI shim. Establishes
@@ -18,6 +32,10 @@ open class LlamaRuntime
     constructor() {
         private val mutex = Mutex()
         private var isLoaded = false
+        private var currentModelKind: ModelKind? = null
+
+        val loadedModelKind: ModelKind?
+            get() = currentModelKind
 
         @Suppress("SwallowedException")
         companion object {
@@ -30,7 +48,10 @@ open class LlamaRuntime
             }
         }
 
-        open suspend fun loadModel(path: String): Result<Unit> =
+        open suspend fun loadModel(
+            path: String,
+            kind: ModelKind,
+        ): Result<Unit> =
             withContext(Dispatchers.IO) {
                 mutex.withLock {
                     runCatching {
@@ -39,23 +60,59 @@ open class LlamaRuntime
                         if (isLoaded) {
                             nativeUnload()
                             isLoaded = false
+                            currentModelKind = null
                         }
-                        val success = nativeLoadModel(path)
-                        check(success) { "Failed to load llama model from: $path" }
+                        val success = nativeLoadModel(path, kind.ordinal)
+                        check(success) { "Failed to load llama model ($kind) from: $path" }
                         isLoaded = true
+                        currentModelKind = kind
                     }
                 }
             }
+
+        open suspend fun loadModel(path: String): Result<Unit> = loadModel(path, ModelKind.EMBEDDING)
 
         open suspend fun embed(text: String): Result<FloatArray> =
             withContext(Dispatchers.IO) {
                 mutex.withLock {
                     runCatching {
                         check(isLoaded) { "No model is currently loaded in LlamaRuntime" }
+                        check(currentModelKind == ModelKind.EMBEDDING) {
+                            "Currently loaded model is not an EMBEDDING model (found: $currentModelKind)"
+                        }
                         nativeEmbed(text) ?: error("Native embedding generation returned null")
                     }
                 }
             }
+
+        open fun generateStream(
+            prompt: String,
+            samplingParams: SamplingParams = SamplingParams(),
+        ): Flow<String> =
+            channelFlow {
+                mutex.withLock {
+                    check(isLoaded) { "No model is currently loaded in LlamaRuntime" }
+                    check(currentModelKind == ModelKind.CHAT) {
+                        "Currently loaded model is not a CHAT model (found: $currentModelKind)"
+                    }
+                    withContext(Dispatchers.IO) {
+                        val callback =
+                            TokenCallback { token ->
+                                val result = trySend(token)
+                                result.isSuccess && isActive
+                            }
+                        val success =
+                            nativeGenerate(
+                                prompt = prompt,
+                                temperature = samplingParams.temperature,
+                                topP = samplingParams.topP,
+                                maxTokens = samplingParams.maxTokens,
+                                callback = callback,
+                            )
+                        check(success) { "Native text generation failed" }
+                    }
+                }
+            }.buffer(Channel.BUFFERED)
 
         open suspend fun unload(): Unit =
             withContext(Dispatchers.IO) {
@@ -63,11 +120,23 @@ open class LlamaRuntime
                     if (isLoaded) {
                         nativeUnload()
                         isLoaded = false
+                        currentModelKind = null
                     }
                 }
             }
 
-        private external fun nativeLoadModel(path: String): Boolean
+        private external fun nativeLoadModel(
+            path: String,
+            modelKind: Int,
+        ): Boolean
+
+        private external fun nativeGenerate(
+            prompt: String,
+            temperature: Double,
+            topP: Double,
+            maxTokens: Int,
+            callback: TokenCallback,
+        ): Boolean
 
         private external fun nativeEmbed(text: String): FloatArray?
 

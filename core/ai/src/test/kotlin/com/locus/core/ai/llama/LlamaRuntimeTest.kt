@@ -1,6 +1,12 @@
 package com.locus.core.ai.llama
 
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.flow.toList
 import kotlinx.coroutines.test.runTest
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNull
+import org.junit.Assert.assertThrows
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -29,5 +35,47 @@ class LlamaRuntimeTest {
             runtime.unload()
             val result = runtime.embed("test")
             assertTrue(result.isFailure)
+        }
+
+    @Test
+    fun generateStreamWithoutLoadedModelThrowsIllegalStateException() =
+        runTest {
+            val runtime = LlamaRuntime()
+            assertThrows(IllegalStateException::class.java) {
+                kotlinx.coroutines.runBlocking {
+                    runtime.generateStream("hello").toList()
+                }
+            }
+        }
+
+    @Test
+    fun modelKindEnumAndInitialState() {
+        val runtime = LlamaRuntime()
+        assertNull(runtime.loadedModelKind)
+        assertEquals(2, ModelKind.entries.size)
+        assertTrue(ModelKind.entries.contains(ModelKind.CHAT))
+        assertTrue(ModelKind.entries.contains(ModelKind.EMBEDDING))
+    }
+
+    @Test
+    fun samplingParamsDefaults() {
+        val params = SamplingParams()
+        assertEquals(0.7, params.temperature, 1e-6)
+        assertEquals(0.9, params.topP, 1e-6)
+        assertEquals(1024, params.maxTokens)
+    }
+
+    @Test
+    fun subclassRuntimeAllowsMockingGenerateStream() =
+        runTest {
+            val fakeRuntime =
+                object : LlamaRuntime() {
+                    override fun generateStream(
+                        prompt: String,
+                        samplingParams: SamplingParams,
+                    ): Flow<String> = flowOf("Hello", " ", "world")
+                }
+            val tokens = fakeRuntime.generateStream("test").toList()
+            assertEquals(listOf("Hello", " ", "world"), tokens)
         }
 }
