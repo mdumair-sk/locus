@@ -1,6 +1,7 @@
 package com.locus.app.ui.settings
 
 import android.content.Context
+import app.cash.turbine.test
 import com.locus.core.domain.backup.BackupInterval
 import com.locus.core.domain.backup.BackupSettingsRepository
 import com.locus.core.domain.backup.ImportExportRepository
@@ -9,6 +10,7 @@ import com.locus.core.domain.notes.Note
 import com.locus.core.domain.notes.NoteRepository
 import com.locus.core.domain.notes.NoteType
 import com.locus.core.domain.notes.RescanReport
+import com.locus.core.domain.settings.AgentSettingsStore
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.Flow
@@ -38,6 +40,7 @@ class SettingsViewModelTest {
     private lateinit var fakeRepo: FakeNoteRepository
     private lateinit var fakeBackupRepo: FakeBackupSettingsRepository
     private lateinit var fakeImportExportRepo: FakeImportExportRepository
+    private lateinit var fakeAgentSettingsStore: FakeAgentSettingsStore
     private lateinit var viewModel: SettingsViewModel
 
     @Before
@@ -47,11 +50,13 @@ class SettingsViewModelTest {
         fakeRepo = FakeNoteRepository()
         fakeBackupRepo = FakeBackupSettingsRepository()
         fakeImportExportRepo = FakeImportExportRepository()
+        fakeAgentSettingsStore = FakeAgentSettingsStore()
         viewModel =
             SettingsViewModel(
                 repo = fakeRepo,
                 backupSettingsRepo = fakeBackupRepo,
                 importExportRepo = fakeImportExportRepo,
+                agentSettingsStore = fakeAgentSettingsStore,
                 context = context,
             )
     }
@@ -63,6 +68,22 @@ class SettingsViewModelTest {
 
     @Test
     fun includeApiKeys_defaultsToFalse() = runTest { assertFalse(viewModel.includeApiKeys.value) }
+
+    @Test
+    fun bulkCap_defaultsTo50() =
+        runTest {
+            viewModel.bulkCap.test { assertEquals(50, awaitItem()) }
+        }
+
+    @Test
+    fun setBulkCap_updatesState() =
+        runTest {
+            viewModel.bulkCap.test {
+                assertEquals(50, awaitItem())
+                viewModel.setBulkCap(75)
+                assertEquals(75, awaitItem())
+            }
+        }
 
     @Test
     fun setIncludeApiKeys_togglesState() =
@@ -216,5 +237,16 @@ class SettingsViewModelTest {
         override suspend fun exportSettings(includeApiKeys: Boolean): String = "{}"
 
         override suspend fun importSettings(json: String): Boolean = true
+    }
+
+    private class FakeAgentSettingsStore(
+        initialCap: Int = 50,
+    ) : AgentSettingsStore {
+        private val _bulkCap = MutableStateFlow(initialCap)
+        override val bulkCap: Flow<Int> = _bulkCap
+
+        override suspend fun setBulkCap(value: Int) {
+            _bulkCap.value = value
+        }
     }
 }

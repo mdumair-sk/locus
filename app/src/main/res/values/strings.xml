@@ -85,6 +85,11 @@
     <string name="settings_export_library_success">Library exported successfully</string>
     <string name="settings_import_invalid_zip">Invalid zip: not a valid Locus export</string>
     <string name="settings_operation_failed">Operation failed: %1$s</string>
+    <string name="settings_agent_section_title">AI &amp; Agent</string>
+    <string name="settings_bulk_cap_title">Bulk operation cap</string>
+    <string name="settings_bulk_cap_subtitle">Maximum notes modified per agent run (default: 50)</string>
+    <string name="settings_bulk_cap_decrease">Decrease bulk operation cap</string>
+    <string name="settings_bulk_cap_increase">Increase bulk operation cap</string>
     <string name="search_placeholder">Search notes…</string>
     <string name="search_clear">Clear search</string>
     <string name="search_rescan">Refresh notes</string>

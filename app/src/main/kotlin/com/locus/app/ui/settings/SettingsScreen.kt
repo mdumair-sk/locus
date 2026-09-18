@@ -14,6 +14,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
@@ -23,6 +24,7 @@ import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.OutlinedIconButton
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Switch
@@ -36,6 +38,9 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.locus.app.R
@@ -73,6 +78,7 @@ fun SettingsScreen(
     val isBackingUp by viewModel.isBackingUp.collectAsState()
     val includeApiKeys by viewModel.includeApiKeys.collectAsState()
     val statusMessage by viewModel.statusMessage.collectAsState()
+    val bulkCap by viewModel.bulkCap.collectAsState()
 
     val snackbarHostState = remember { SnackbarHostState() }
     LaunchedEffect(statusMessage) {
@@ -155,6 +161,11 @@ fun SettingsScreen(
                 onBackupNow = { viewModel.backupNow() },
             )
 
+            AgentSettingsCard(
+                bulkCap = bulkCap,
+                onBulkCapChanged = { viewModel.setBulkCap(it) },
+            )
+
             ImportExportCard(
                 includeApiKeys = includeApiKeys,
                 actions =
@@ -190,6 +201,110 @@ fun SettingsScreen(
             hostState = snackbarHostState,
             modifier = Modifier.align(Alignment.BottomCenter),
         )
+    }
+}
+
+@Composable
+private fun AgentSettingsCard(
+    bulkCap: Int,
+    onBulkCapChanged: (Int) -> Unit,
+) {
+    Card(modifier = Modifier.fillMaxWidth()) {
+        Column(
+            modifier = Modifier.padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            Text(
+                text = stringResource(R.string.settings_agent_section_title),
+                style = MaterialTheme.typography.titleMedium,
+            )
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Column(modifier = Modifier.weight(1f).padding(end = 8.dp)) {
+                    Text(
+                        text = stringResource(R.string.settings_bulk_cap_title),
+                        style = MaterialTheme.typography.bodyMedium,
+                    )
+                    Text(
+                        text = stringResource(R.string.settings_bulk_cap_subtitle),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+
+                NumericStepper(
+                    value = bulkCap,
+                    onValueChange = onBulkCapChanged,
+                )
+            }
+        }
+    }
+}
+
+private const val DEFAULT_MIN_BULK_CAP = 1
+private const val DEFAULT_MAX_BULK_CAP = 500
+private const val DEFAULT_STEP_BULK_CAP = 5
+
+@Composable
+private fun NumericStepper(
+    value: Int,
+    onValueChange: (Int) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val minValue = DEFAULT_MIN_BULK_CAP
+    val maxValue = DEFAULT_MAX_BULK_CAP
+    val step = DEFAULT_STEP_BULK_CAP
+    val decreaseDesc = stringResource(R.string.settings_bulk_cap_decrease)
+    val increaseDesc = stringResource(R.string.settings_bulk_cap_increase)
+
+    Row(
+        modifier = modifier,
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        OutlinedIconButton(
+            onClick = {
+                val next = if (value - step < minValue) minValue else value - step
+                onValueChange(next)
+            },
+            enabled = value > minValue,
+            modifier = Modifier.size(36.dp).semantics { contentDescription = decreaseDesc },
+        ) {
+            Text(
+                text = "−",
+                style = MaterialTheme.typography.titleMedium,
+            )
+        }
+
+        Text(
+            text = value.toString(),
+            style = MaterialTheme.typography.titleMedium,
+            modifier = Modifier.widthIn(min = 32.dp),
+            textAlign = TextAlign.Center,
+        )
+
+        OutlinedIconButton(
+            onClick = {
+                val next =
+                    if (value == minValue && minValue < step) {
+                        step
+                    } else {
+                        (value + step).coerceAtMost(maxValue)
+                    }
+                onValueChange(next)
+            },
+            enabled = value < maxValue,
+            modifier = Modifier.size(36.dp).semantics { contentDescription = increaseDesc },
+        ) {
+            Text(
+                text = "+",
+                style = MaterialTheme.typography.titleMedium,
+            )
+        }
     }
 }
 

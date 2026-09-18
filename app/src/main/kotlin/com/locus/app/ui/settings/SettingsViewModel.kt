@@ -13,6 +13,7 @@ import com.locus.core.domain.backup.BackupSettingsRepository
 import com.locus.core.domain.backup.ImportExportRepository
 import com.locus.core.domain.backup.LibraryImportOutcome
 import com.locus.core.domain.notes.NoteRepository
+import com.locus.core.domain.settings.AgentSettingsStore
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -33,6 +34,7 @@ class SettingsViewModel
         private val repo: NoteRepository,
         private val backupSettingsRepo: BackupSettingsRepository,
         private val importExportRepo: ImportExportRepository,
+        private val agentSettingsStore: AgentSettingsStore,
         @ApplicationContext private val context: Context,
     ) : ViewModel() {
         val rootUri: StateFlow<String?> =
@@ -71,6 +73,13 @@ class SettingsViewModel
                     initialValue = null,
                 )
 
+        val bulkCap: StateFlow<Int> =
+            agentSettingsStore.bulkCap.stateIn(
+                scope = viewModelScope,
+                started = SharingStarted.WhileSubscribed(STOP_TIMEOUT_MILLIS),
+                initialValue = AgentSettingsStore.DEFAULT_BULK_CAP,
+            )
+
         val isBackingUp: StateFlow<Boolean> =
             runCatching {
                 WorkManager
@@ -102,6 +111,10 @@ class SettingsViewModel
 
         fun clearStatusMessage() {
             _statusMessage.value = null
+        }
+
+        fun setBulkCap(value: Int) {
+            viewModelScope.launch { agentSettingsStore.setBulkCap(value) }
         }
 
         fun setRootFolder(uriString: String) {

@@ -78,6 +78,12 @@ abstract class DataModule {
         impl: com.locus.core.data.chat.DefaultActiveModelRepository,
     ): com.locus.core.domain.chat.ActiveModelRepository
 
+    @Binds
+    @Singleton
+    abstract fun bindAgentSettingsStore(
+        impl: com.locus.core.data.settings.AgentSettingsStore,
+    ): com.locus.core.domain.settings.AgentSettingsStore
+
     companion object {
         @Provides
         @Singleton
