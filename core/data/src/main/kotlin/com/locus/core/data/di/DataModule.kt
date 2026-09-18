@@ -14,6 +14,8 @@ import com.locus.core.data.files.TreeUriStore
 import com.locus.core.data.reminders.AndroidAlarmScheduler
 import com.locus.core.data.reminders.ReminderDao
 import com.locus.core.data.search.RoomKeywordSearch
+import com.locus.core.data.vector.ChunkDao
+import com.locus.core.data.vector.VectorStore
 import com.locus.core.domain.backup.BackupSettingsRepository
 import com.locus.core.domain.backup.ImportExportRepository
 import com.locus.core.domain.notes.FrontmatterParser
@@ -21,6 +23,7 @@ import com.locus.core.domain.notes.NoteRepository
 import com.locus.core.domain.notes.SnakeYamlCodec
 import com.locus.core.domain.notes.YamlCodec
 import com.locus.core.domain.reminders.AlarmScheduler
+import com.locus.core.domain.search.ChunkRepository
 import com.locus.core.domain.search.KeywordSearch
 import dagger.Binds
 import dagger.Module
@@ -60,6 +63,9 @@ abstract class DataModule {
     @Binds @Singleton
     abstract fun bindAlarmScheduler(impl: AndroidAlarmScheduler): AlarmScheduler
 
+    @Binds @Singleton
+    abstract fun bindChunkRepository(impl: VectorStore): ChunkRepository
+
     companion object {
         @Provides
         @Singleton
@@ -75,12 +81,14 @@ abstract class DataModule {
                     context,
                     LocusDatabase::class.java,
                     "locus.db",
-                ).addMigrations(LocusDatabase.MIGRATION_1_2)
+                ).addMigrations(LocusDatabase.MIGRATION_1_2, LocusDatabase.MIGRATION_2_3)
                 .build()
 
         @Provides fun provideNoteDao(database: LocusDatabase): NoteDao = database.noteDao()
 
         @Provides
         fun provideReminderDao(database: LocusDatabase): ReminderDao = database.reminderDao()
+
+        @Provides fun provideChunkDao(database: LocusDatabase): ChunkDao = database.chunkDao()
     }
 }
