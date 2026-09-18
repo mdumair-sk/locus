@@ -538,4 +538,117 @@ class RagAnswerUseCaseTest {
                 recordedPrompt?.contains("1241.43 INR") == true,
             )
         }
+
+    @Test
+    fun ragAnswerUseCase_whenUserAsksToSummarizeNotes_retrievesAllNotesAndProvidesContextToModel() =
+        runTest {
+            val note1 =
+                Note(
+                    id = "n1",
+                    title = "Last Prompt Ran",
+                    type = NoteType.NOTE,
+                    folderPath = "",
+                    pinned = false,
+                    color = null,
+                    tags = emptyList(),
+                    created = java.time.Instant.ofEpochMilli(1000L),
+                    modified = java.time.Instant.ofEpochMilli(1000L),
+                    checksum = "c1",
+                )
+            val note2 =
+                Note(
+                    id = "n2",
+                    title = "bike refuel date",
+                    type = NoteType.NOTE,
+                    folderPath = "",
+                    pinned = false,
+                    color = null,
+                    tags = emptyList(),
+                    created = java.time.Instant.ofEpochMilli(2000L),
+                    modified = java.time.Instant.ofEpochMilli(2000L),
+                    checksum = "c2",
+                )
+
+            val fakeNoteRepo =
+                object : NoteRepository {
+                    override fun observeNotesInFolder(folderPath: String): Flow<List<Note>> = error("unused")
+
+                    override fun observeAllNotes(): Flow<List<Note>> {
+                        val list = listOf(note1, note2)
+                        return kotlinx.coroutines.flow.flowOf(list)
+                    }
+
+                    override suspend fun readBody(noteId: String): String =
+                        if (noteId == "n1") {
+                            "Prompt #14 - 17th sept"
+                        } else {
+                            "bike refueled 1241.43 INR"
+                        }
+
+                    override suspend fun listFolders(): List<String> = emptyList()
+
+                    override suspend fun createFolder(
+                        parentPath: String,
+                        name: String,
+                    ) = Unit
+
+                    override suspend fun createNote(
+                        folderPath: String,
+                        title: String,
+                        type: NoteType,
+                    ): Note = error("unused")
+
+                    override suspend fun edit(
+                        noteId: String,
+                        newBody: String,
+                    ) = Unit
+
+                    override suspend fun setPinned(
+                        noteId: String,
+                        pinned: Boolean,
+                    ) = Unit
+
+                    override suspend fun setColor(
+                        noteId: String,
+                        color: String?,
+                    ) = Unit
+
+                    override suspend fun rescan(): RescanReport = RescanReport(0, 0, 0)
+                }
+
+            val emptySearch =
+                HybridSearchUseCase(
+                    keywordSearch = FakeKeywordSearch(emptyList()),
+                    chunkRepository = UnavailableChunkRepository(),
+                    embeddingGateway = DummyEmbeddingGateway(),
+                )
+
+            var recordedPrompt: String? = null
+            val adapter =
+                FakeProviderAdapter { messages ->
+                    recordedPrompt =
+                        messages.firstOrNull { it.role == ProviderRole.SYSTEM }?.content
+                    listOf(
+                        StreamEvent.TokenDelta("Here is a summary of your notes [1] [2]."),
+                        StreamEvent.Done(),
+                    )
+                }
+
+            val useCase =
+                RagAnswerUseCase(
+                    hybridSearch = emptySearch,
+                    providerAdapter = adapter,
+                    noteRepository = fakeNoteRepo,
+                )
+
+            val answer = useCase(query = "summarize my notes")
+
+            assertEquals(2, answer.sources.size)
+            assertEquals("n1", answer.sources[0].noteId)
+            assertEquals("n2", answer.sources[1].noteId)
+            assertTrue(recordedPrompt?.contains("Last Prompt Ran") == true)
+            assertTrue(recordedPrompt?.contains("Prompt #14") == true)
+            assertTrue(recordedPrompt?.contains("bike refuel date") == true)
+            assertTrue(recordedPrompt?.contains("1241.43 INR") == true)
+        }
 }

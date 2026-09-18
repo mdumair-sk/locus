@@ -10,6 +10,7 @@ import com.locus.core.domain.routing.ModelRef
 import com.locus.core.domain.search.HybridSearchUseCase
 import com.locus.core.domain.search.SearchResult
 import com.locus.core.domain.search.SearchScope
+import kotlinx.coroutines.flow.first
 import javax.inject.Singleton
 
 /**
@@ -260,22 +261,116 @@ class RagAnswerUseCase(
         history: List<ProviderMessage>,
     ): List<SearchResult> {
         val initial = hybridSearch(query = query, scope = scope)
-        if (initial.results.isNotEmpty() || history.isEmpty()) {
-            return initial.results
-        }
-        val lastUserMessage =
-            history.findLast { it.role == ProviderRole.USER && it.content.isNotBlank() }?.content
-        val contextual =
-            if (!lastUserMessage.isNullOrBlank()) {
-                hybridSearch(query = "$lastUserMessage $query", scope = scope)
+        return if (initial.results.isNotEmpty()) {
+            if (isGeneralNotesSummaryQuery(query) && noteRepository != null) {
+                loadAllNotesChunks().ifEmpty { initial.results }
             } else {
-                null
+                initial.results
             }
-        return contextual?.results?.ifEmpty { initial.results } ?: initial.results
+        } else if (isSummaryOrOverviewQuery(query) && noteRepository != null) {
+            loadAllNotesChunks()
+        } else if (history.isNotEmpty()) {
+            val lastUserMessage =
+                history.findLast { it.role == ProviderRole.USER && it.content.isNotBlank() }?.content
+            if (!lastUserMessage.isNullOrBlank()) {
+                hybridSearch(query = "$lastUserMessage $query", scope = scope).results.ifEmpty {
+                    initial.results
+                }
+            } else {
+                initial.results
+            }
+        } else {
+            initial.results
+        }
+    }
+
+    private suspend fun loadAllNotesChunks(): List<SearchResult> {
+        val repo = noteRepository ?: return emptyList()
+        return runCatching {
+            val notes = repo.observeAllNotes().first()
+            notes.take(MAX_SUMMARY_NOTES).mapIndexed { index, note ->
+                val body =
+                    runCatching { repo.readBody(note.id) }.getOrNull()?.trim()?.ifBlank { null }
+                        ?: note.title
+                val preview =
+                    if (body.length > MAX_CHUNK_PREVIEW_LENGTH) {
+                        body.take(MAX_CHUNK_PREVIEW_LENGTH)
+                    } else {
+                        body
+                    }
+                SearchResult(
+                    noteId = note.id,
+                    title = note.title,
+                    snippet = preview,
+                    score = 1.0 - (index * 0.01),
+                    headingPath = emptyList(),
+                )
+            }
+        }.getOrDefault(emptyList())
+    }
+
+    private fun isGeneralNotesSummaryQuery(query: String): Boolean {
+        val cleaned =
+            query
+                .trim()
+                .lowercase()
+                .replace(PUNCTUATION_REGEX, "")
+                .replace(FILLER_WORDS_REGEX, "")
+                .trim()
+                .replace(WHITESPACE_REGEX, " ")
+
+        return cleaned in GENERAL_SUMMARY_TARGETS
+    }
+
+    private fun isSummaryOrOverviewQuery(query: String): Boolean {
+        val lower = query.trim().lowercase()
+        val phrases =
+            listOf(
+                "summariz",
+                "summaris",
+                "summary",
+                "overview",
+                "what do my notes",
+                "what are my notes",
+                "what's in my notes",
+                "what is in my notes",
+                "tell me about my notes",
+                "what notes do i have",
+                "list my notes",
+                "list all notes",
+                "all my notes",
+                "all of my notes",
+                "show my notes",
+                "everything in my notes",
+            )
+        return phrases.any { lower.contains(it) }
     }
 
     companion object {
         private const val MAX_CHUNK_PREVIEW_LENGTH = 4000
+        private const val MAX_SUMMARY_NOTES = 15
         private val CITATION_REGEX = Regex("""(\s*)\[(\d+)\]""")
+        private val PUNCTUATION_REGEX = Regex("""[?!.,'"]""")
+        private val FILLER_WORDS_REGEX =
+            Regex("""\b(can|you|please|give|me|a|the|my|all|of|in|about|do|say|what|is|are|tell)\b""")
+        private val WHITESPACE_REGEX = Regex("""\s+""")
+        private val GENERAL_SUMMARY_TARGETS =
+            setOf(
+                "summarize",
+                "summarise",
+                "summarize notes",
+                "summarise notes",
+                "summary",
+                "summary notes",
+                "overview",
+                "overview notes",
+                "notes",
+                "notes summary",
+                "notes summarize",
+                "notes overview",
+                "list notes",
+                "notes list",
+                "show notes",
+            )
     }
 }
