@@ -13,10 +13,11 @@ plugins {
 spotless {
     kotlin {
         target("**/*.kt")
-        targetExclude("**/build/**")
+        targetExclude("**/build/**", "**/cpp/**")
         ktlint("1.3.1")
     }
 }
+
 detekt {
     config.setFrom("$rootDir/detekt.yml")
     buildUponDefaultConfig = true
