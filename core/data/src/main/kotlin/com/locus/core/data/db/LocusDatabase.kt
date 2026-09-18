@@ -5,6 +5,9 @@ import androidx.room.RoomDatabase
 import androidx.room.TypeConverters
 import androidx.room.migration.Migration
 import androidx.sqlite.db.SupportSQLiteDatabase
+import com.locus.core.data.chat.ChatDao
+import com.locus.core.data.chat.ChatMessageEntity
+import com.locus.core.data.chat.ChatSessionEntity
 import com.locus.core.data.reminders.ReminderDao
 import com.locus.core.data.reminders.ReminderEntity
 import com.locus.core.data.vector.ChunkDao
@@ -18,8 +21,10 @@ import com.locus.core.data.vector.EmbeddingConverters
             NoteFtsEntity::class,
             ReminderEntity::class,
             ChunkEntity::class,
+            ChatSessionEntity::class,
+            ChatMessageEntity::class,
         ],
-    version = 3,
+    version = 4,
     exportSchema = true,
 )
 @TypeConverters(Converters::class, EmbeddingConverters::class)
@@ -30,10 +35,13 @@ abstract class LocusDatabase : RoomDatabase() {
 
     abstract fun chunkDao(): ChunkDao
 
+    abstract fun chatDao(): ChatDao
+
     companion object {
         private const val VERSION_1 = 1
         private const val VERSION_2 = 2
         private const val VERSION_3 = 3
+        private const val VERSION_4 = 4
 
         val MIGRATION_1_2 =
             object : Migration(VERSION_1, VERSION_2) {
@@ -75,6 +83,40 @@ abstract class LocusDatabase : RoomDatabase() {
                     )
                     db.execSQL(
                         "CREATE INDEX IF NOT EXISTS `index_chunks_noteId` ON `chunks` (`noteId`)",
+                    )
+                }
+            }
+
+        val MIGRATION_3_4 =
+            object : Migration(VERSION_3, VERSION_4) {
+                override fun migrate(db: SupportSQLiteDatabase) {
+                    db.execSQL(
+                        """
+                        CREATE TABLE IF NOT EXISTS `chat_sessions` (
+                            `id` TEXT NOT NULL,
+                            `name` TEXT NOT NULL,
+                            `createdAt` INTEGER NOT NULL,
+                            `modifiedAt` INTEGER NOT NULL,
+                            PRIMARY KEY(`id`)
+                        )
+                        """.trimIndent(),
+                    )
+                    db.execSQL(
+                        """
+                        CREATE TABLE IF NOT EXISTS `chat_messages` (
+                            `id` TEXT NOT NULL,
+                            `sessionId` TEXT NOT NULL,
+                            `role` TEXT NOT NULL,
+                            `content` TEXT NOT NULL,
+                            `citationsJson` TEXT NOT NULL,
+                            `timestamp` INTEGER NOT NULL,
+                            PRIMARY KEY(`id`),
+                            FOREIGN KEY(`sessionId`) REFERENCES `chat_sessions`(`id`) ON DELETE CASCADE
+                        )
+                        """.trimIndent(),
+                    )
+                    db.execSQL(
+                        "CREATE INDEX IF NOT EXISTS `index_chat_messages_sessionId` ON `chat_messages` (`sessionId`)",
                     )
                 }
             }

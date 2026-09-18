@@ -1,6 +1,7 @@
 package com.locus.core.data.db
 
 import androidx.room.TypeConverter
+import com.locus.core.domain.chat.ChatRole
 import com.locus.core.domain.notes.NoteType
 import com.locus.core.domain.reminders.RepeatRule
 import com.locus.core.domain.reminders.SchedulingTier
@@ -33,4 +34,8 @@ class Converters {
     fun fromSchedulingTier(value: String?): SchedulingTier? = value?.let { SchedulingTier.valueOf(it) }
 
     @TypeConverter fun toSchedulingTier(tier: SchedulingTier?): String? = tier?.name
+
+    @TypeConverter fun fromChatRole(value: String?): ChatRole? = value?.let { ChatRole.valueOf(it) }
+
+    @TypeConverter fun toChatRole(role: ChatRole?): String? = role?.name
 }

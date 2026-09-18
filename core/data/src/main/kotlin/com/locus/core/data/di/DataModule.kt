@@ -4,6 +4,8 @@ import android.content.Context
 import androidx.room.Room
 import com.locus.core.data.backup.BackupPreferencesStore
 import com.locus.core.data.backup.SafImportExportRepository
+import com.locus.core.data.chat.ChatDao
+import com.locus.core.data.chat.RoomChatRepository
 import com.locus.core.data.db.LocusDatabase
 import com.locus.core.data.db.NoteDao
 import com.locus.core.data.files.AndroidSafNoteFileSource
@@ -18,6 +20,7 @@ import com.locus.core.data.vector.ChunkDao
 import com.locus.core.data.vector.VectorStore
 import com.locus.core.domain.backup.BackupSettingsRepository
 import com.locus.core.domain.backup.ImportExportRepository
+import com.locus.core.domain.chat.ChatRepository
 import com.locus.core.domain.notes.FrontmatterParser
 import com.locus.core.domain.notes.NoteRepository
 import com.locus.core.domain.notes.SnakeYamlCodec
@@ -66,6 +69,9 @@ abstract class DataModule {
     @Binds @Singleton
     abstract fun bindChunkRepository(impl: VectorStore): ChunkRepository
 
+    @Binds @Singleton
+    abstract fun bindChatRepository(impl: RoomChatRepository): ChatRepository
+
     companion object {
         @Provides
         @Singleton
@@ -81,8 +87,11 @@ abstract class DataModule {
                     context,
                     LocusDatabase::class.java,
                     "locus.db",
-                ).addMigrations(LocusDatabase.MIGRATION_1_2, LocusDatabase.MIGRATION_2_3)
-                .build()
+                ).addMigrations(
+                    LocusDatabase.MIGRATION_1_2,
+                    LocusDatabase.MIGRATION_2_3,
+                    LocusDatabase.MIGRATION_3_4,
+                ).build()
 
         @Provides fun provideNoteDao(database: LocusDatabase): NoteDao = database.noteDao()
 
@@ -90,5 +99,7 @@ abstract class DataModule {
         fun provideReminderDao(database: LocusDatabase): ReminderDao = database.reminderDao()
 
         @Provides fun provideChunkDao(database: LocusDatabase): ChunkDao = database.chunkDao()
+
+        @Provides fun provideChatDao(database: LocusDatabase): ChatDao = database.chatDao()
     }
 }
