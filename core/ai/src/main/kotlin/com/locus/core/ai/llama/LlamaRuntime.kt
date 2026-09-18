@@ -13,7 +13,7 @@ import javax.inject.Singleton
  * runtime-ownership contract (M-1) serving embedding and future chat generation (Prompt 41).
  */
 @Singleton
-class LlamaRuntime
+open class LlamaRuntime
     @Inject
     constructor() {
         private val mutex = Mutex()
@@ -30,7 +30,7 @@ class LlamaRuntime
             }
         }
 
-        suspend fun loadModel(path: String): Result<Unit> =
+        open suspend fun loadModel(path: String): Result<Unit> =
             withContext(Dispatchers.IO) {
                 mutex.withLock {
                     runCatching {
@@ -47,7 +47,7 @@ class LlamaRuntime
                 }
             }
 
-        suspend fun embed(text: String): Result<FloatArray> =
+        open suspend fun embed(text: String): Result<FloatArray> =
             withContext(Dispatchers.IO) {
                 mutex.withLock {
                     runCatching {
@@ -57,7 +57,7 @@ class LlamaRuntime
                 }
             }
 
-        suspend fun unload(): Unit =
+        open suspend fun unload(): Unit =
             withContext(Dispatchers.IO) {
                 mutex.withLock {
                     if (isLoaded) {

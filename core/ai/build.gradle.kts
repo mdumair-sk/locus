@@ -13,9 +13,7 @@ android {
     defaultConfig {
         minSdk = 31
 
-        ndk {
-            abiFilters.addAll(listOf("arm64-v8a", "x86_64"))
-        }
+        ndk { abiFilters.addAll(listOf("arm64-v8a", "x86_64")) }
 
         externalNativeBuild {
             cmake {
@@ -52,9 +50,7 @@ android {
         targetCompatibility = JavaVersion.VERSION_17
     }
 
-    kotlinOptions {
-        jvmTarget = "17"
-    }
+    kotlinOptions { jvmTarget = "17" }
 }
 
 dependencies {
@@ -63,7 +59,9 @@ dependencies {
     ksp(libs.hilt.compiler)
     implementation(libs.coroutines.core)
     implementation(libs.coroutines.android)
+    implementation(libs.okhttp)
 
     testImplementation(libs.junit)
     testImplementation(libs.coroutines.test)
+    testImplementation(libs.robolectric)
 }
