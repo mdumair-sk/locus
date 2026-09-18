@@ -3,6 +3,7 @@ plugins {
     alias(libs.plugins.kotlin.android)
     alias(libs.plugins.hilt)
     alias(libs.plugins.ksp)
+    alias(libs.plugins.kotlin.serialization)
 }
 
 android {
@@ -61,6 +62,7 @@ dependencies {
     implementation(libs.coroutines.android)
     implementation(libs.okhttp)
     implementation(libs.okhttp.sse)
+    implementation(libs.serialization.json)
 
     testImplementation(libs.junit)
     testImplementation(libs.coroutines.test)
