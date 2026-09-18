@@ -1,5 +1,8 @@
 package com.locus.core.domain.search
 
+import javax.inject.Inject
+import javax.inject.Singleton
+
 data class RankedChunk(
     val chunkId: String,
     val noteId: String,
@@ -17,9 +20,17 @@ data class FusedResult(
  * rank). A chunk absent from a list contributes nothing for that list. k=60 is RRF's standard
  * smoothing constant.
  */
+@Singleton
 class ReciprocalRankFusion(
-    private val k: Int = 60,
+    private val k: Int,
 ) {
+    @Inject
+    constructor() : this(DEFAULT_K)
+
+    companion object {
+        const val DEFAULT_K = 60
+    }
+
     fun fuse(vararg rankedLists: List<RankedChunk>): List<FusedResult> {
         val scores = linkedMapOf<String, Double>()
         val noteOf = mutableMapOf<String, String>()

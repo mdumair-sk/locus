@@ -4,7 +4,13 @@ import com.locus.core.domain.notes.Note
 import com.locus.core.domain.notes.NoteRepository
 import com.locus.core.domain.notes.NoteType
 import com.locus.core.domain.notes.RescanReport
+import com.locus.core.domain.search.ChunkMetadata
+import com.locus.core.domain.search.ChunkRepository
+import com.locus.core.domain.search.EmbeddedChunk
+import com.locus.core.domain.search.EmbeddingGateway
+import com.locus.core.domain.search.HybridSearchUseCase
 import com.locus.core.domain.search.KeywordSearch
+import com.locus.core.domain.search.RankedChunk
 import com.locus.core.domain.search.SearchResult
 import com.locus.core.domain.search.SearchScope
 import com.locus.core.domain.time.DispatcherProvider
@@ -29,7 +35,10 @@ import org.junit.Test
 class SearchViewModelTest {
     private val testDispatcher = StandardTestDispatcher()
     private lateinit var testDispatchers: TestDispatcherProvider
-    private lateinit var fakeSearch: FakeKeywordSearch
+    private lateinit var fakeKeywordSearch: FakeKeywordSearch
+    private lateinit var fakeChunkRepo: FakeChunkRepository
+    private lateinit var fakeEmbeddingGateway: FakeEmbeddingGateway
+    private lateinit var hybridSearchUseCase: HybridSearchUseCase
     private lateinit var fakeRepo: FakeNoteRepository
     private lateinit var viewModel: SearchViewModel
 
@@ -37,9 +46,17 @@ class SearchViewModelTest {
     fun setUp() {
         Dispatchers.setMain(testDispatcher)
         testDispatchers = TestDispatcherProvider(testDispatcher)
-        fakeSearch = FakeKeywordSearch()
+        fakeKeywordSearch = FakeKeywordSearch()
+        fakeChunkRepo = FakeChunkRepository(isAvailable = true)
+        fakeEmbeddingGateway = FakeEmbeddingGateway()
+        hybridSearchUseCase =
+            HybridSearchUseCase(
+                keywordSearch = fakeKeywordSearch,
+                chunkRepository = fakeChunkRepo,
+                embeddingGateway = fakeEmbeddingGateway,
+            )
         fakeRepo = FakeNoteRepository()
-        viewModel = SearchViewModel(fakeSearch, fakeRepo, testDispatchers)
+        viewModel = SearchViewModel(hybridSearchUseCase, fakeRepo, testDispatchers)
     }
 
     @After
@@ -53,6 +70,9 @@ class SearchViewModelTest {
         assertEquals("", state.query)
         assertTrue(state.results.isEmpty())
         assertFalse(state.isSearching)
+        assertFalse(state.degraded)
+        assertTrue(state.scope.isUnconstrained())
+        assertFalse(state.isScopePickerVisible)
     }
 
     @Test
@@ -63,14 +83,13 @@ class SearchViewModelTest {
 
             // Before debounce elapses (at 200ms)
             testDispatcher.scheduler.advanceTimeBy(200)
-            assertEquals(0, fakeSearch.searchCount)
+            assertEquals(0, fakeKeywordSearch.searchCount)
 
             // After debounce elapses (at 300ms total)
             testDispatcher.scheduler.advanceTimeBy(150)
             testDispatcher.scheduler.advanceUntilIdle()
 
-            assertEquals(1, fakeSearch.searchCount)
-            assertEquals("meeting", fakeSearch.lastQuery)
+            assertEquals(1, fakeKeywordSearch.searchCount)
             assertEquals(1, viewModel.uiState.value.results.size)
             assertEquals(
                 "meeting-note",
@@ -78,6 +97,24 @@ class SearchViewModelTest {
                     .noteId,
             )
             assertFalse(viewModel.uiState.value.isSearching)
+            assertFalse(viewModel.uiState.value.degraded)
+        }
+
+    @Test
+    fun onQueryChange_setsDegradedTrueWhenChunkRepositoryUnavailable() =
+        runTest {
+            fakeChunkRepo.isAvailable = false
+            viewModel.onQueryChange("project")
+            testDispatcher.scheduler.advanceTimeBy(350)
+            testDispatcher.scheduler.advanceUntilIdle()
+
+            assertEquals(1, fakeKeywordSearch.searchCount)
+            assertTrue(viewModel.uiState.value.degraded)
+            assertEquals(
+                "meeting-note",
+                viewModel.uiState.value.results[0]
+                    .noteId,
+            )
         }
 
     @Test
@@ -95,8 +132,50 @@ class SearchViewModelTest {
             testDispatcher.scheduler.advanceTimeBy(350)
             testDispatcher.scheduler.advanceUntilIdle()
 
-            assertEquals(1, fakeSearch.searchCount)
-            assertEquals("meet", fakeSearch.lastQuery)
+            assertEquals(1, fakeKeywordSearch.searchCount)
+            assertEquals("meet", fakeKeywordSearch.lastQuery)
+        }
+
+    @Test
+    fun onScopeChange_reTriggersSearchWithUpdatedScope() =
+        runTest {
+            viewModel.onQueryChange("search-term")
+            testDispatcher.scheduler.advanceTimeBy(350)
+            testDispatcher.scheduler.advanceUntilIdle()
+            assertEquals(1, fakeKeywordSearch.searchCount)
+
+            val newScope = SearchScope(folderPaths = setOf("Work"))
+            viewModel.onScopeChange(newScope)
+            testDispatcher.scheduler.advanceUntilIdle()
+
+            assertEquals(2, fakeKeywordSearch.searchCount)
+            assertEquals(newScope, fakeKeywordSearch.lastScope)
+            assertEquals(newScope, viewModel.uiState.value.scope)
+        }
+
+    @Test
+    fun setScopePickerVisible_updatesUiState() {
+        assertFalse(viewModel.uiState.value.isScopePickerVisible)
+        viewModel.setScopePickerVisible(true)
+        assertTrue(viewModel.uiState.value.isScopePickerVisible)
+        viewModel.setScopePickerVisible(false)
+        assertFalse(viewModel.uiState.value.isScopePickerVisible)
+    }
+
+    @Test
+    fun clearScope_resetsScopeToDefault() =
+        runTest {
+            viewModel.onScopeChange(SearchScope(noteIds = setOf("id-1")))
+            assertFalse(
+                viewModel.uiState.value.scope
+                    .isUnconstrained(),
+            )
+
+            viewModel.clearScope()
+            assertTrue(
+                viewModel.uiState.value.scope
+                    .isUnconstrained(),
+            )
         }
 
     @Test
@@ -138,9 +217,9 @@ class SearchViewModelTest {
         runTest {
             viewModel.onQueryChange("project")
             testDispatcher.scheduler.advanceUntilIdle()
-            assertEquals(1, fakeSearch.searchCount)
+            assertEquals(1, fakeKeywordSearch.searchCount)
 
-            fakeSearch.resultsToReturn =
+            fakeKeywordSearch.resultsToReturn =
                 listOf(
                     SearchResult("note-1", "Project A", "Snippet 1"),
                     SearchResult("note-2", "Project B", "Snippet 2"),
@@ -150,7 +229,7 @@ class SearchViewModelTest {
             testDispatcher.scheduler.advanceUntilIdle()
 
             assertTrue(fakeRepo.rescanCalled)
-            assertEquals(2, fakeSearch.searchCount)
+            assertEquals(2, fakeKeywordSearch.searchCount)
             assertEquals(2, viewModel.uiState.value.results.size)
             assertFalse(viewModel.uiState.value.isSearching)
         }
@@ -158,6 +237,7 @@ class SearchViewModelTest {
     private class FakeKeywordSearch : KeywordSearch {
         var searchCount = 0
         var lastQuery: String? = null
+        var lastScope: SearchScope? = null
         var resultsToReturn: List<SearchResult> =
             listOf(
                 SearchResult(
@@ -173,8 +253,48 @@ class SearchViewModelTest {
         ): List<SearchResult> {
             searchCount++
             lastQuery = query
+            lastScope = scope
             return resultsToReturn
         }
+    }
+
+    private class FakeChunkRepository(
+        var isAvailable: Boolean = true,
+    ) : ChunkRepository {
+        override suspend fun isAvailable(): Boolean = isAvailable
+
+        override suspend fun getMetadata(noteId: String): ChunkMetadata? = null
+
+        override suspend fun replaceChunksForNote(
+            noteId: String,
+            chunks: List<EmbeddedChunk>,
+        ) {
+            // No-op in test fake
+        }
+
+        override suspend fun search(
+            queryVector: FloatArray,
+            topK: Int,
+            noteIds: Set<String>?,
+        ): List<RankedChunk> = emptyList()
+
+        override suspend fun search(
+            queryVector: FloatArray,
+            topK: Int,
+            scope: SearchScope,
+        ): List<RankedChunk> = emptyList()
+
+        override suspend fun getChunksForNote(noteId: String): List<EmbeddedChunk> = emptyList()
+
+        override suspend fun getChunk(chunkId: String): EmbeddedChunk? = null
+
+        override suspend fun deleteAll() {
+            // No-op in test fake
+        }
+    }
+
+    private class FakeEmbeddingGateway : EmbeddingGateway {
+        override suspend fun embed(text: String): FloatArray = floatArrayOf(0.1f, 0.2f)
     }
 
     private class FakeNoteRepository : NoteRepository {

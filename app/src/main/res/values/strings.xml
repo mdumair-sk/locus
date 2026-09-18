@@ -90,4 +90,16 @@
     <string name="search_rescan">Refresh notes</string>
     <string name="search_hint">Type to search notes</string>
     <string name="search_no_results">No notes matching \"%1$s\"</string>
+    <string name="search_scope_button">Scope</string>
+    <string name="search_scope_button_active">Scope (%1$d)</string>
+    <string name="search_degraded_chip">Keyword only</string>
+    <string name="search_scope_title">Search scope</string>
+    <string name="search_scope_folders">Folders</string>
+    <string name="search_scope_notes">Notes</string>
+    <string name="search_scope_date_range">Date range</string>
+    <string name="search_scope_apply">Apply</string>
+    <string name="search_scope_reset">Reset</string>
+    <string name="search_scope_any_date">Any time</string>
+    <string name="search_scope_last_7_days">Last 7 days</string>
+    <string name="search_scope_last_30_days">Last 30 days</string>
 </resources>
