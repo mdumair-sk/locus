@@ -17,6 +17,7 @@ data class PackedChunk(
             title = title,
             snippet = text,
             score = score,
+            headingPath = headingPath,
         )
 }
 
