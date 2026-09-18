@@ -1,15 +1,19 @@
 package com.locus.core.ai.di
 
+import android.content.Context
+import androidx.work.WorkManager
 import com.locus.core.ai.BuildConfig
 import com.locus.core.ai.embedding.EmbeddingRunner
 import com.locus.core.ai.llama.LlamaRuntime
 import com.locus.core.ai.llama.LocalLlamaChatModelClient
 import com.locus.core.ai.llama.ModelDownloader
+import com.locus.core.ai.models.DefaultModelManagerRepository
 import com.locus.core.ai.providers.GeminiAdapter
 import com.locus.core.ai.providers.OpenAiCompatibleAdapter
 import com.locus.core.domain.chat.ActiveModelRepository
 import com.locus.core.domain.chat.ChatModelClient
 import com.locus.core.domain.chat.RagAnswerUseCase
+import com.locus.core.domain.models.ModelManagerRepository
 import com.locus.core.domain.notes.NoteRepository
 import com.locus.core.domain.providers.ProviderAdapter
 import com.locus.core.domain.search.EmbeddingGateway
@@ -18,6 +22,7 @@ import dagger.Binds
 import dagger.Module
 import dagger.Provides
 import dagger.hilt.InstallIn
+import dagger.hilt.android.qualifiers.ApplicationContext
 import dagger.hilt.components.SingletonComponent
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -71,10 +76,20 @@ abstract class AiModule {
     @LocalChat
     abstract fun bindLocalChatModelClient(client: LocalLlamaChatModelClient): ChatModelClient
 
+    @Binds
+    @Singleton
+    abstract fun bindModelManagerRepository(impl: DefaultModelManagerRepository): ModelManagerRepository
+
     companion object {
         @Provides
         @Singleton
         fun provideOkHttpClient(): OkHttpClient = OkHttpClient.Builder().build()
+
+        @Provides
+        @Singleton
+        fun provideWorkManager(
+            @ApplicationContext context: Context,
+        ): WorkManager = WorkManager.getInstance(context)
 
         @Provides
         @Singleton

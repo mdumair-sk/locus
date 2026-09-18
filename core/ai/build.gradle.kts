@@ -10,9 +10,11 @@ plugins {
 
 val localProperties = Properties()
 val localPropertiesFile = rootProject.file("local.properties")
+
 if (localPropertiesFile.exists()) {
     localProperties.load(localPropertiesFile.inputStream())
 }
+
 val devApiKey = localProperties.getProperty("LOCUS_DEV_API_KEY", "")
 val devModel = localProperties.getProperty("LOCUS_DEV_MODEL", "gemini-3.5-flash-lite")
 
@@ -21,9 +23,7 @@ android {
     compileSdk = 35
     ndkVersion = "26.3.11579264"
 
-    buildFeatures {
-        buildConfig = true
-    }
+    buildFeatures { buildConfig = true }
 
     defaultConfig {
         minSdk = 31
@@ -80,9 +80,14 @@ dependencies {
     implementation(libs.okhttp)
     implementation(libs.okhttp.sse)
     implementation(libs.serialization.json)
+    implementation(libs.work.runtime.ktx)
+    implementation(libs.hilt.work)
+    ksp(libs.hilt.ext.compiler)
+    implementation(libs.datastore.preferences)
 
     testImplementation(libs.junit)
     testImplementation(libs.coroutines.test)
     testImplementation(libs.robolectric)
     testImplementation(libs.mockwebserver)
+    testImplementation(libs.work.testing)
 }

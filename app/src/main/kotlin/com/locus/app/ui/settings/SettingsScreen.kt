@@ -68,6 +68,7 @@ private data class BackupUiState(
 @Composable
 fun SettingsScreen(
     onNavigateToTrash: () -> Unit,
+    onNavigateToModelManager: () -> Unit = {},
     modifier: Modifier = Modifier,
     viewModel: SettingsViewModel = hiltViewModel(),
 ) {
@@ -166,6 +167,8 @@ fun SettingsScreen(
                 onBulkCapChanged = { viewModel.setBulkCap(it) },
             )
 
+            LocalModelsCard(onManageModels = onNavigateToModelManager)
+
             ImportExportCard(
                 includeApiKeys = includeApiKeys,
                 actions =
@@ -201,6 +204,33 @@ fun SettingsScreen(
             hostState = snackbarHostState,
             modifier = Modifier.align(Alignment.BottomCenter),
         )
+    }
+}
+
+@Composable
+private fun LocalModelsCard(
+    onManageModels: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Card(modifier = modifier.fillMaxWidth()) {
+        Column(
+            modifier = Modifier.padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            Text(
+                text = stringResource(R.string.settings_models_title),
+                style = MaterialTheme.typography.titleMedium,
+            )
+            Text(
+                text = stringResource(R.string.settings_models_subtitle),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            Button(
+                onClick = onManageModels,
+                modifier = Modifier.fillMaxWidth(),
+            ) { Text(stringResource(R.string.settings_models_button)) }
+        }
     }
 }
 

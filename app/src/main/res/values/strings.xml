@@ -122,4 +122,25 @@
     <string name="model_tier_local">Local</string>
     <string name="model_tier_cloud">Cloud</string>
     <string name="active_model_desc">Active model: %1$s, %2$s</string>
+    <string name="nav_models">Local Models</string>
+    <string name="model_manager_title">Model Manager</string>
+    <string name="settings_models_title">Local Models</string>
+    <string name="settings_models_subtitle">Manage GGUF models, downloads, and storage</string>
+    <string name="settings_models_button">Manage Models</string>
+    <string name="models_storage_title">Storage Usage</string>
+    <string name="models_storage_used">%1$s used by models</string>
+    <string name="models_storage_free">%1$s free on device</string>
+    <string name="models_downloaded_title">Downloaded Models</string>
+    <string name="models_downloaded_empty">No models downloaded yet</string>
+    <string name="models_downloads_title">Active Downloads</string>
+    <string name="models_browse_title">Browse Hugging Face</string>
+    <string name="models_search_placeholder">Search GGUF models…</string>
+    <string name="models_search_button">Search</string>
+    <string name="models_download_button">Download</string>
+    <string name="models_downloading_button">Downloading</string>
+    <string name="models_downloaded_badge">Downloaded</string>
+    <string name="models_delete_confirm_title">Delete Model?</string>
+    <string name="models_delete_confirm_msg">Delete %1$s from device storage? This cannot be undone.</string>
+    <string name="models_delete_button">Delete</string>
+    <string name="models_cancel_button">Cancel</string>
 </resources>

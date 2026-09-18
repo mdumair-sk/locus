@@ -215,4 +215,136 @@ class ModelDownloaderTest {
             assertTrue(result.isFailure)
             assertTrue(result.exceptionOrNull() is IllegalStateException)
         }
+
+    @Test
+    fun downloadToFileResumable_resumesFromCommittedOffsetWithRangeHeader() =
+        runTest {
+            val filename = "resumable-test.gguf"
+            val part1 = "part1-"
+            val part2 = "part2-completed"
+            val fullContent = part1 + part2
+            val fullSha256 =
+                MessageDigest.getInstance("SHA-256").digest(fullContent.toByteArray()).joinToString(
+                    "",
+                ) { "%02x".format(it) }
+
+            var capturedRangeHeader: String? = null
+            val mockClient =
+                OkHttpClient
+                    .Builder()
+                    .addInterceptor(
+                        Interceptor { chain ->
+                            val request = chain.request()
+                            capturedRangeHeader = request.header("Range")
+                            Response
+                                .Builder()
+                                .request(request)
+                                .protocol(Protocol.HTTP_1_1)
+                                .code(206)
+                                .message("Partial Content")
+                                .header(
+                                    "Content-Range",
+                                    "bytes 6-${fullContent.length - 1}/${fullContent.length}",
+                                ).body(
+                                    part2.toResponseBody(
+                                        "application/octet-stream".toMediaType(),
+                                    ),
+                                ).build()
+                        },
+                    ).build()
+
+            val downloader = ModelDownloader(context, mockClient)
+            val targetFile = downloader.getModelFile(filename)
+            val tempFile = File(targetFile.parentFile, "$filename.tmp")
+            targetFile.parentFile?.mkdirs()
+            tempFile.writeText(part1)
+            downloader.saveCommittedOffset(filename, part1.length.toLong())
+
+            val resultFile =
+                downloader.downloadToFileResumable(
+                    url = "https://huggingface.co/test/model/resolve/main/$filename",
+                    filename = filename,
+                    expectedSha256 = fullSha256,
+                )
+
+            assertEquals("bytes=${part1.length}-", capturedRangeHeader)
+            assertTrue(resultFile.exists())
+            assertEquals(fullContent, resultFile.readText())
+            assertFalse(tempFile.exists())
+            assertEquals(0L, downloader.getCommittedOffset(filename))
+        }
+
+    @Test
+    fun downloadToFileResumable_corruptedFile_failsVerificationAndDeletesFiles() =
+        runTest {
+            val filename = "corrupted-test.gguf"
+            val validContent = "original clean content"
+            val corruptedContent = "original clean xontent" // flipped byte 'c' -> 'x'
+            val validSha256 =
+                MessageDigest.getInstance("SHA-256").digest(validContent.toByteArray()).joinToString(
+                    "",
+                ) { "%02x".format(it) }
+
+            val mockClient =
+                OkHttpClient
+                    .Builder()
+                    .addInterceptor(
+                        Interceptor { chain ->
+                            Response
+                                .Builder()
+                                .request(chain.request())
+                                .protocol(Protocol.HTTP_1_1)
+                                .code(200)
+                                .message("OK")
+                                .body(
+                                    corruptedContent.toResponseBody(
+                                        "application/octet-stream".toMediaType(),
+                                    ),
+                                ).build()
+                        },
+                    ).build()
+
+            val downloader = ModelDownloader(context, mockClient)
+            val result =
+                runCatching {
+                    downloader.downloadToFileResumable(
+                        url = "https://huggingface.co/test/model/resolve/main/$filename",
+                        filename = filename,
+                        expectedSha256 = validSha256,
+                    )
+                }
+
+            assertTrue(result.isFailure)
+            assertTrue(result.exceptionOrNull() is IllegalStateException)
+            val targetFile = downloader.getModelFile(filename)
+            val tempFile = File(targetFile.parentFile, "$filename.tmp")
+            assertFalse("Target file must not be left loadable on corruption", targetFile.exists())
+            assertFalse("Temp file must be deleted on corruption", tempFile.exists())
+            assertEquals(0L, downloader.getCommittedOffset(filename))
+        }
+
+    @Test
+    fun storageStats_and_deleteModel_worksCorrectly() =
+        runTest {
+            val downloader = ModelDownloader(context, OkHttpClient())
+            val file1 = downloader.getModelFile("model1.gguf")
+            val file2 = downloader.getModelFile("model2.gguf")
+            file1.writeText("12345") // 5 bytes
+            file2.writeText("1234567890") // 10 bytes
+
+            val models = downloader.getDownloadedModels()
+            assertEquals(2, models.size)
+
+            val stats = downloader.getStorageStats()
+            assertEquals(15L, stats.totalUsedBytes)
+
+            val deleted = downloader.deleteModel("model1.gguf")
+            assertTrue(deleted)
+            assertFalse(file1.exists())
+
+            val remainingModels = downloader.getDownloadedModels()
+            assertEquals(1, remainingModels.size)
+            assertEquals("model2.gguf", remainingModels[0].name)
+            assertEquals(10L, downloader.getStorageStats().totalUsedBytes)
+        }
 }

@@ -28,6 +28,7 @@ import com.locus.app.R
 import com.locus.app.ui.chat.ChatScreen
 import com.locus.app.ui.editor.EditorScreen
 import com.locus.app.ui.grid.GridScreen
+import com.locus.app.ui.models.ModelManagerScreen
 import com.locus.app.ui.search.SearchScreen
 import com.locus.app.ui.settings.SettingsScreen
 import com.locus.app.ui.trash.TrashScreen
@@ -115,6 +116,9 @@ private fun NavGraphBuilder.locusNavGraph(navController: NavHostController) {
     composable(LocusDestinations.SETTINGS_ROUTE) {
         SettingsScreen(
             onNavigateToTrash = { navController.navigate(LocusDestinations.TRASH_ROUTE) },
+            onNavigateToModelManager = {
+                navController.navigate(LocusDestinations.MODEL_MANAGER_ROUTE)
+            },
         )
     }
     composable(LocusDestinations.SEARCH_ROUTE) {
@@ -154,6 +158,11 @@ private fun NavGraphBuilder.locusNavGraph(navController: NavHostController) {
             onNavigateToEditor = { noteId ->
                 navController.navigate(LocusDestinations.editorRoute(noteId))
             },
+        )
+    }
+    composable(LocusDestinations.MODEL_MANAGER_ROUTE) {
+        ModelManagerScreen(
+            onNavigateBack = { navController.popBackStack() },
         )
     }
 }
