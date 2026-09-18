@@ -1,5 +1,6 @@
 package com.locus.core.ai.providers
 
+import com.locus.core.domain.chat.ChatModelClient
 import com.locus.core.domain.providers.ProviderAdapter
 import com.locus.core.domain.providers.ProviderCapabilities
 import com.locus.core.domain.providers.ProviderMessage
@@ -36,7 +37,8 @@ class OpenAiCompatibleAdapter(
             pricePerMillionOutputTokens = null,
         ),
     private val client: OkHttpClient = OkHttpClient(),
-) : ProviderAdapter {
+) : ProviderAdapter,
+    ChatModelClient {
     override fun streamChat(
         messages: List<ProviderMessage>,
         tools: List<ToolSchema>,

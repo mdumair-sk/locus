@@ -3,11 +3,17 @@ package com.locus.core.ai.di
 import com.locus.core.ai.BuildConfig
 import com.locus.core.ai.embedding.EmbeddingRunner
 import com.locus.core.ai.llama.LlamaRuntime
+import com.locus.core.ai.llama.LocalLlamaChatModelClient
 import com.locus.core.ai.llama.ModelDownloader
 import com.locus.core.ai.providers.GeminiAdapter
 import com.locus.core.ai.providers.OpenAiCompatibleAdapter
+import com.locus.core.domain.chat.ActiveModelRepository
+import com.locus.core.domain.chat.ChatModelClient
+import com.locus.core.domain.chat.RagAnswerUseCase
+import com.locus.core.domain.notes.NoteRepository
 import com.locus.core.domain.providers.ProviderAdapter
 import com.locus.core.domain.search.EmbeddingGateway
+import com.locus.core.domain.search.HybridSearchUseCase
 import dagger.Binds
 import dagger.Module
 import dagger.Provides
@@ -60,6 +66,11 @@ abstract class AiModule {
     @Singleton
     internal abstract fun bindEmbeddingGateway(adapter: EmbeddingRunnerGatewayAdapter): EmbeddingGateway
 
+    @Binds
+    @Singleton
+    @LocalChat
+    abstract fun bindLocalChatModelClient(client: LocalLlamaChatModelClient): ChatModelClient
+
     companion object {
         @Provides
         @Singleton
@@ -80,5 +91,27 @@ abstract class AiModule {
                     client = client,
                 )
             }
+
+        @Provides
+        @Singleton
+        @CloudChat
+        fun provideCloudChatModelClient(providerAdapter: ProviderAdapter): ChatModelClient = providerAdapter
+
+        @Provides
+        @Singleton
+        fun provideRagAnswerUseCase(
+            hybridSearch: HybridSearchUseCase,
+            providerAdapter: ProviderAdapter,
+            noteRepository: NoteRepository,
+            activeModelRepository: ActiveModelRepository,
+            @LocalChat localChatClient: ChatModelClient,
+        ): RagAnswerUseCase =
+            RagAnswerUseCase(
+                hybridSearch = hybridSearch,
+                providerAdapter = providerAdapter,
+                noteRepository = noteRepository,
+                activeModelRepository = activeModelRepository,
+                localChatClient = localChatClient,
+            )
     }
 }

@@ -10,7 +10,6 @@ import com.locus.core.domain.routing.ModelRef
 import com.locus.core.domain.search.HybridSearchUseCase
 import com.locus.core.domain.search.SearchResult
 import com.locus.core.domain.search.SearchScope
-import javax.inject.Inject
 import javax.inject.Singleton
 
 /**
@@ -27,6 +26,7 @@ import javax.inject.Singleton
  * 6. Appends a structured `sources` list ([List]<[CitedSource]>) derived from the actual retrieved
  * chunks.
  */
+@Suppress("LongParameterList")
 @Singleton
 class RagAnswerUseCase(
     private val hybridSearch: HybridSearchUseCase,
@@ -34,31 +34,48 @@ class RagAnswerUseCase(
     private val routingPolicy: ChatRoutingPolicy? = null,
     private val adapterResolver: ((ModelRef) -> ProviderAdapter)? = null,
     private val noteRepository: NoteRepository? = null,
+    private val activeModelRepository: ActiveModelRepository? = null,
+    private val localChatClient: ChatModelClient? = null,
 ) {
-    @Inject
     constructor(
         hybridSearch: HybridSearchUseCase,
         providerAdapter: ProviderAdapter,
         noteRepository: NoteRepository,
-    ) : this(hybridSearch, providerAdapter, null, null, noteRepository)
+    ) : this(hybridSearch, providerAdapter, null, null, noteRepository, null, null)
 
     constructor(
         hybridSearch: HybridSearchUseCase,
         providerAdapter: ProviderAdapter,
-    ) : this(hybridSearch, providerAdapter, null, null, null)
+    ) : this(hybridSearch, providerAdapter, null, null, null, null, null)
 
     constructor(
         hybridSearch: HybridSearchUseCase,
         providerAdapter: ProviderAdapter,
         routingPolicy: ChatRoutingPolicy?,
-    ) : this(hybridSearch, providerAdapter, routingPolicy, null, null)
+    ) : this(hybridSearch, providerAdapter, routingPolicy, null, null, null, null)
 
     constructor(
         hybridSearch: HybridSearchUseCase,
         providerAdapter: ProviderAdapter,
         routingPolicy: ChatRoutingPolicy?,
         adapterResolver: ((ModelRef) -> ProviderAdapter)?,
-    ) : this(hybridSearch, providerAdapter, routingPolicy, adapterResolver, null)
+    ) : this(hybridSearch, providerAdapter, routingPolicy, adapterResolver, null, null, null)
+
+    constructor(
+        hybridSearch: HybridSearchUseCase,
+        providerAdapter: ProviderAdapter,
+        noteRepository: NoteRepository?,
+        activeModelRepository: ActiveModelRepository?,
+        localChatClient: ChatModelClient?,
+    ) : this(
+        hybridSearch,
+        providerAdapter,
+        null,
+        null,
+        noteRepository,
+        activeModelRepository,
+        localChatClient,
+    )
 
     suspend operator fun invoke(
         query: String,
@@ -86,7 +103,14 @@ class RagAnswerUseCase(
             }
 
         val textBuffer = StringBuilder()
-        activeAdapter.streamChat(messages).collect { event ->
+        val streamFlow =
+            if (activeModelRepository?.getActiveModel()?.isLocal == true && localChatClient != null) {
+                localChatClient.generate(buildLocalPrompt(systemPrompt, history, query))
+            } else {
+                activeAdapter.streamChat(messages)
+            }
+
+        streamFlow.collect { event ->
             when (event) {
                 is StreamEvent.TokenDelta -> {
                     textBuffer.append(event.text)
@@ -204,6 +228,25 @@ class RagAnswerUseCase(
             text
         }
     }
+
+    private fun buildLocalPrompt(
+        systemPrompt: String,
+        history: List<ProviderMessage>,
+        query: String,
+    ): String =
+        buildString {
+            append(systemPrompt)
+            append("\n\n")
+            for (msg in history) {
+                when (msg.role) {
+                    ProviderRole.USER -> append("User: ${msg.content}\n")
+                    ProviderRole.ASSISTANT -> append("Assistant: ${msg.content}\n")
+                    ProviderRole.SYSTEM -> append("System: ${msg.content}\n")
+                    ProviderRole.TOOL -> append("Tool: ${msg.content}\n")
+                }
+            }
+            append("User: $query\nAssistant:")
+        }
 
     companion object {
         private const val MAX_CHUNK_PREVIEW_LENGTH = 4000

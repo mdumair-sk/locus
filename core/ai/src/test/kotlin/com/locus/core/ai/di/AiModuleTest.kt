@@ -3,6 +3,7 @@ package com.locus.core.ai.di
 import android.content.Context
 import com.locus.core.ai.embedding.EmbeddingRunner
 import com.locus.core.ai.llama.LlamaRuntime
+import com.locus.core.ai.llama.LocalLlamaChatModelClient
 import com.locus.core.ai.llama.ModelDownloader
 import kotlinx.coroutines.test.runTest
 import okhttp3.OkHttpClient
@@ -51,6 +52,24 @@ class AiModuleTest {
                 )
                 assertFalse(
                     "LlamaRuntime constructor must not take HTTP types: $name",
+                    name.contains("httpclient"),
+                )
+            }
+        }
+    }
+
+    @Test
+    fun m2_localLlamaChatModelClientConstructorHasZeroHttpDependencies() {
+        val clientConstructors = LocalLlamaChatModelClient::class.java.constructors
+        for (constructor in clientConstructors) {
+            for (paramType in constructor.parameterTypes) {
+                val name = paramType.name.lowercase()
+                assertFalse(
+                    "LocalLlamaChatModelClient constructor must not take HTTP types: $name",
+                    name.contains("okhttp"),
+                )
+                assertFalse(
+                    "LocalLlamaChatModelClient constructor must not take HTTP types: $name",
                     name.contains("httpclient"),
                 )
             }

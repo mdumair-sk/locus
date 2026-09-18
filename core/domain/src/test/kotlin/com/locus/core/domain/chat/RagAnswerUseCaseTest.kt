@@ -377,4 +377,75 @@ class RagAnswerUseCaseTest {
                 systemPrompt?.contains("1241.43 rs at shell station") == true,
             )
         }
+
+    private class FakeChatModelClient(
+        private val cannedText: String,
+    ) : ChatModelClient {
+        var generateCalled = false
+        var lastPrompt: String? = null
+
+        override fun generate(
+            prompt: String,
+            tools: List<ToolSchema>,
+        ): Flow<StreamEvent> {
+            generateCalled = true
+            lastPrompt = prompt
+            return flow {
+                emit(StreamEvent.TokenDelta(cannedText))
+                emit(StreamEvent.Done("stop"))
+            }
+        }
+    }
+
+    private class FakeActiveModelRepository(
+        private var currentModel: ActiveModelInfo,
+    ) : ActiveModelRepository {
+        override fun observeActiveModel(): Flow<ActiveModelInfo> = flow { emit(currentModel) }
+
+        override suspend fun setActiveModel(model: ActiveModelInfo) {
+            currentModel = model
+        }
+
+        override fun getActiveModel(): ActiveModelInfo = currentModel
+    }
+
+    @Test
+    fun ragAnswerUseCase_whenActiveModelIsLocal_routesToLocalChatClient() =
+        runTest {
+            val searchResult =
+                SearchResult(
+                    noteId = "n1",
+                    title = "Offline Note",
+                    snippet = "Offline local note text.",
+                    headingPath = emptyList(),
+                )
+            val hybridSearch =
+                HybridSearchUseCase(
+                    keywordSearch = FakeKeywordSearch(listOf(searchResult)),
+                    chunkRepository = UnavailableChunkRepository(),
+                    embeddingGateway = DummyEmbeddingGateway(),
+                )
+            val cloudAdapter = FakeProviderAdapter { error("Cloud adapter should not be called") }
+            val localClient = FakeChatModelClient("Local generated response [1].")
+            val activeModelRepo =
+                FakeActiveModelRepository(
+                    ActiveModelInfo(name = "qwen-4b", tier = ModelTier.LOCAL),
+                )
+
+            val useCase =
+                RagAnswerUseCase(
+                    hybridSearch = hybridSearch,
+                    providerAdapter = cloudAdapter,
+                    noteRepository = null,
+                    activeModelRepository = activeModelRepo,
+                    localChatClient = localClient,
+                )
+
+            val answer = useCase(query = "local query")
+
+            assertTrue("Local client should have been called", localClient.generateCalled)
+            assertEquals("Local generated response [1].", answer.text)
+            assertEquals(1, answer.sources.size)
+            assertEquals(0, cloudAdapter.lastRecordedMessages.size)
+        }
 }
