@@ -7,7 +7,9 @@ data class SearchScope(
     val noteIds: Set<String> = emptySet(),
     val after: Instant? = null,
     val before: Instant? = null,
-)
+) {
+    fun isUnconstrained(): Boolean = folderPaths.isEmpty() && noteIds.isEmpty() && after == null && before == null
+}
 
 interface KeywordSearch {
     suspend fun search(

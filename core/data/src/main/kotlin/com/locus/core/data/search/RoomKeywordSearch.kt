@@ -1,7 +1,7 @@
 package com.locus.core.data.search
 
+import androidx.sqlite.db.SimpleSQLiteQuery
 import com.locus.core.data.db.NoteDao
-import com.locus.core.data.db.NoteIndexEntity
 import com.locus.core.domain.search.KeywordSearch
 import com.locus.core.domain.search.SearchResult
 import com.locus.core.domain.search.SearchScope
@@ -23,10 +23,11 @@ class RoomKeywordSearch
 
             val entities =
                 try {
-                    noteDao.ftsSearch(trimmed)
+                    noteDao.ftsSearchScoped(buildFtsQuery(trimmed, scope))
                 } catch (_: Exception) {
                     try {
-                        // Fallback: strip quotes and quote tokens to avoid FTS syntax errors on special characters
+                        // Fallback: strip quotes and quote tokens to avoid FTS syntax errors on
+                        // special characters
                         val fallbackQuery =
                             trimmed
                                 .replace("\"", "")
@@ -34,7 +35,7 @@ class RoomKeywordSearch
                                 .filter { it.isNotBlank() }
                                 .joinToString(" ") { "\"$it\"" }
                         if (fallbackQuery.isNotBlank()) {
-                            noteDao.ftsSearch(fallbackQuery)
+                            noteDao.ftsSearchScoped(buildFtsQuery(fallbackQuery, scope))
                         } else {
                             emptyList()
                         }
@@ -43,42 +44,67 @@ class RoomKeywordSearch
                     }
                 }
 
-            return entities
-                .filter { matchesScope(it, scope) }
-                .mapIndexed { index, entity ->
-                    SearchResult(
-                        noteId = entity.id,
-                        title = entity.title,
-                        snippet = entity.bodyPreview,
-                        score = 1.0 / (index + 1.0),
-                    )
-                }
+            return entities.mapIndexed { index, entity ->
+                SearchResult(
+                    noteId = entity.id,
+                    title = entity.title,
+                    snippet = entity.bodyPreview,
+                    score = 1.0 / (index + 1.0),
+                )
+            }
         }
 
-        private fun matchesScope(
-            entity: NoteIndexEntity,
+        private fun buildFtsQuery(
+            matchQuery: String,
             scope: SearchScope,
-        ): Boolean {
-            val matchesNoteIds = scope.noteIds.isEmpty() || entity.id in scope.noteIds
-            val matchesFolder = scope.folderPaths.isEmpty() || matchesFolder(entity.folderPath, scope.folderPaths)
-            val matchesAfter = scope.after == null || !entity.modified.isBefore(scope.after)
-            val matchesBefore = scope.before == null || !entity.modified.isAfter(scope.before)
-            return matchesNoteIds && matchesFolder && matchesAfter && matchesBefore
-        }
+        ): SimpleSQLiteQuery {
+            val sql =
+                StringBuilder(
+                    """
+                    SELECT note_index.*
+                    FROM note_index
+                    JOIN note_fts ON note_index.rowid = note_fts.rowid
+                    WHERE note_fts MATCH ?
+                    """.trimIndent(),
+                )
+            val args = mutableListOf<Any>(matchQuery)
 
-        private fun matchesFolder(
-            entityFolder: String,
-            scopedFolders: Set<String>,
-        ): Boolean {
-            val normalizedEntity = normalizeFolder(entityFolder)
-            return scopedFolders.any { scoped ->
-                val normalizedScoped = normalizeFolder(scoped)
-                if (normalizedScoped.isEmpty()) {
-                    normalizedEntity.isEmpty()
-                } else {
-                    normalizedEntity == normalizedScoped || normalizedEntity.startsWith("$normalizedScoped/")
+            if (scope.folderPaths.isNotEmpty()) {
+                val folderClauses = mutableListOf<String>()
+                for (folder in scope.folderPaths) {
+                    val normalized = normalizeFolder(folder)
+                    if (normalized.isEmpty()) {
+                        folderClauses.add("note_index.folderPath = ''")
+                    } else {
+                        folderClauses.add("(note_index.folderPath = ? OR note_index.folderPath LIKE ?)")
+                        args.add(normalized)
+                        args.add("$normalized/%")
+                    }
+                }
+                if (folderClauses.isNotEmpty()) {
+                    sql.append(" AND (").append(folderClauses.joinToString(" OR ")).append(")")
                 }
             }
+
+            if (scope.noteIds.isNotEmpty()) {
+                val placeholders = scope.noteIds.joinToString(",") { "?" }
+                sql.append(" AND note_index.id IN (").append(placeholders).append(")")
+                args.addAll(scope.noteIds)
+            }
+
+            val after = scope.after
+            if (after != null) {
+                sql.append(" AND note_index.modified >= ?")
+                args.add(after.toEpochMilli())
+            }
+
+            val before = scope.before
+            if (before != null) {
+                sql.append(" AND note_index.modified <= ?")
+                args.add(before.toEpochMilli())
+            }
+
+            return SimpleSQLiteQuery(sql.toString(), args.toTypedArray())
         }
 
         private fun normalizeFolder(path: String): String = path.trim().trim('/')

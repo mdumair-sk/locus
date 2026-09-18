@@ -2,13 +2,14 @@ package com.locus.core.data.db
 
 import androidx.room.Dao
 import androidx.room.Query
+import androidx.room.RawQuery
 import androidx.room.Upsert
+import androidx.sqlite.db.SupportSQLiteQuery
 import kotlinx.coroutines.flow.Flow
 
 @Dao
 interface NoteDao {
-    @Upsert
-    suspend fun upsert(entity: NoteIndexEntity)
+    @Upsert suspend fun upsert(entity: NoteIndexEntity)
 
     @Query("SELECT * FROM note_index WHERE id = :id")
     suspend fun getById(id: String): NoteIndexEntity?
@@ -31,4 +32,6 @@ interface NoteDao {
         """,
     )
     suspend fun ftsSearch(query: String): List<NoteIndexEntity>
+
+    @RawQuery suspend fun ftsSearchScoped(query: SupportSQLiteQuery): List<NoteIndexEntity>
 }

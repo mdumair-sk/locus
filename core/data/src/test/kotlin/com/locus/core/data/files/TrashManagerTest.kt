@@ -3,6 +3,7 @@ package com.locus.core.data.files
 import android.net.Uri
 import androidx.documentfile.provider.DocumentFile
 import androidx.documentfile.provider.TestDocumentFile
+import androidx.sqlite.db.SupportSQLiteQuery
 import com.locus.core.data.db.NoteDao
 import com.locus.core.data.db.NoteIndexEntity
 import com.locus.core.domain.notes.FrontmatterParser
@@ -385,5 +386,7 @@ class TrashManagerTest {
             MutableStateFlow(map.values.filter { it.folderPath == path })
 
         override suspend fun ftsSearch(query: String): List<NoteIndexEntity> = emptyList()
+
+        override suspend fun ftsSearchScoped(query: SupportSQLiteQuery): List<NoteIndexEntity> = emptyList()
     }
 }

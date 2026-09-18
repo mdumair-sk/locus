@@ -6,7 +6,18 @@ import com.locus.core.data.db.LocusDatabase
 import com.locus.core.data.db.NoteDao
 import com.locus.core.data.db.NoteIndexEntity
 import com.locus.core.domain.notes.FlushReceipt
+import com.locus.core.domain.notes.Note
+import com.locus.core.domain.notes.NoteRepository
 import com.locus.core.domain.notes.NoteType
+import com.locus.core.domain.notes.RescanReport
+import com.locus.core.domain.search.ChunkMetadata
+import com.locus.core.domain.search.ChunkRepository
+import com.locus.core.domain.search.EmbeddedChunk
+import com.locus.core.domain.search.EmbeddingGateway
+import com.locus.core.domain.search.IndexingCoordinator
+import com.locus.core.domain.search.RankedChunk
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.emptyFlow
 import kotlinx.coroutines.test.runTest
 import org.junit.After
 import org.junit.Assert.assertEquals
@@ -104,5 +115,114 @@ class RoomIndexUpdateQueueTest {
             assertEquals(Instant.ofEpochMilli(1726500000000L), updated.modified)
             assertEquals("newhash456", updated.checksum)
             assertEquals("- [ ] buy milk", updated.bodyPreview)
+        }
+
+    @Test
+    fun enqueue_whenCoordinatorProvided_callsReindexIfNeeded() =
+        runTest {
+            val fakeEmbeddingGateway =
+                object : EmbeddingGateway {
+                    var callCount = 0
+
+                    override suspend fun embed(text: String): FloatArray {
+                        callCount++
+                        return FloatArray(4) { 0.1f }
+                    }
+                }
+            val fakeChunkRepository =
+                object : ChunkRepository {
+                    val stored = mutableListOf<EmbeddedChunk>()
+
+                    override suspend fun getMetadata(noteId: String): ChunkMetadata? = null
+
+                    override suspend fun replaceChunksForNote(
+                        noteId: String,
+                        chunks: List<EmbeddedChunk>,
+                    ) {
+                        stored.addAll(chunks)
+                    }
+
+                    override suspend fun search(
+                        queryVector: FloatArray,
+                        topK: Int,
+                        noteIds: Set<String>?,
+                    ): List<RankedChunk> = emptyList()
+
+                    override suspend fun deleteAll() {
+                        stored.clear()
+                    }
+                }
+            val fakeNoteRepository =
+                object : NoteRepository {
+                    override fun observeNotesInFolder(folderPath: String): Flow<List<Note>> = emptyFlow()
+
+                    override fun observeAllNotes(): Flow<List<Note>> = emptyFlow()
+
+                    override suspend fun readBody(noteId: String): String = "Note body content"
+
+                    override suspend fun listFolders(): List<String> = emptyList()
+
+                    override suspend fun createFolder(
+                        parentPath: String,
+                        name: String,
+                    ) = Unit
+
+                    override suspend fun createNote(
+                        folderPath: String,
+                        title: String,
+                        type: NoteType,
+                    ): Note = error("Unused")
+
+                    override suspend fun edit(
+                        noteId: String,
+                        newBody: String,
+                    ) = Unit
+
+                    override suspend fun setPinned(
+                        noteId: String,
+                        pinned: Boolean,
+                    ) = Unit
+
+                    override suspend fun setColor(
+                        noteId: String,
+                        color: String?,
+                    ) = Unit
+
+                    override suspend fun rescan(): RescanReport = RescanReport(0, 0, 0)
+                }
+
+            val coordinator =
+                IndexingCoordinator(
+                    embeddingGateway = fakeEmbeddingGateway,
+                    chunkRepository = fakeChunkRepository,
+                    noteRepository = fakeNoteRepository,
+                )
+
+            val queueWithCoordinator =
+                RoomIndexUpdateQueue(
+                    noteDao = noteDao,
+                    indexingCoordinator = coordinator,
+                    noteRepository = fakeNoteRepository,
+                )
+
+            val receipt =
+                FlushReceipt(
+                    noteId = "note-reindex",
+                    checksum = "hash-reindex-123",
+                    flushedAt = 1726500000000L,
+                )
+
+            queueWithCoordinator.enqueue(receipt)
+
+            // Check that noteDao was updated
+            val savedEntity = noteDao.getById("note-reindex")
+            assertNotNull(savedEntity)
+            assertEquals("hash-reindex-123", savedEntity!!.checksum)
+
+            // Check that coordinator reindexed the note (chunks stored and embedding called)
+            assertEquals(1, fakeEmbeddingGateway.callCount)
+            assertEquals(1, fakeChunkRepository.stored.size)
+            assertEquals("note-reindex_0", fakeChunkRepository.stored[0].chunkId)
+            assertEquals("hash-reindex-123", fakeChunkRepository.stored[0].sourceChecksum)
         }
 }

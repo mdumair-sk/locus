@@ -675,6 +675,10 @@ class SafNoteRepositoryTest {
 
                     override suspend fun ftsSearch(query: String): List<com.locus.core.data.db.NoteIndexEntity> =
                         map.values.filter { it.title.contains(query, ignoreCase = true) }
+
+                    override suspend fun ftsSearchScoped(
+                        query: androidx.sqlite.db.SupportSQLiteQuery,
+                    ): List<com.locus.core.data.db.NoteIndexEntity> = emptyList()
                 }
 
             val repository = createRepository(root, noteDao = noteDao)

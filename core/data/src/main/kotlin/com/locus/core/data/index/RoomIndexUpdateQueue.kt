@@ -4,9 +4,13 @@ import com.locus.core.data.db.NoteDao
 import com.locus.core.data.db.NoteIndexEntity
 import com.locus.core.domain.notes.FlushReceipt
 import com.locus.core.domain.notes.IndexUpdateQueue
+import com.locus.core.domain.notes.Note
+import com.locus.core.domain.notes.NoteRepository
 import com.locus.core.domain.notes.NoteType
+import com.locus.core.domain.search.IndexingCoordinator
 import java.time.Instant
 import javax.inject.Inject
+import javax.inject.Provider
 import javax.inject.Singleton
 
 /**
@@ -16,15 +20,29 @@ import javax.inject.Singleton
  * [FlushReceipt.noteId], updating only [NoteIndexEntity.checksum] and [NoteIndexEntity.modified].
  *
  * Dependency note: Full chunk generation, FTS indexing, and embedding vector enqueue arrive in
- * Prompt 28. Extend [enqueue] at that point to enqueue chunking and embedding background jobs
- * after the file flush receipt is received.
+ * Prompt 28. Extend [enqueue] at that point to enqueue chunking and embedding background jobs after
+ * the file flush receipt is received.
  */
 @Singleton
 class RoomIndexUpdateQueue
     @Inject
     constructor(
         private val noteDao: NoteDao,
+        private val indexingCoordinatorProvider: Provider<IndexingCoordinator>,
+        private val noteRepositoryProvider: Provider<NoteRepository>,
     ) : IndexUpdateQueue {
+        constructor(
+            noteDao: NoteDao,
+            indexingCoordinator: IndexingCoordinator? = null,
+            noteRepository: NoteRepository? = null,
+        ) : this(
+            noteDao = noteDao,
+            indexingCoordinatorProvider =
+                Provider { indexingCoordinator ?: error("IndexingCoordinator not provided") },
+            noteRepositoryProvider =
+                Provider { noteRepository ?: error("NoteRepository not provided") },
+        )
+
         override suspend fun enqueue(receipt: FlushReceipt) {
             val modifiedInstant = Instant.ofEpochMilli(receipt.flushedAt)
             val existing = noteDao.getById(receipt.noteId)
@@ -50,5 +68,27 @@ class RoomIndexUpdateQueue
                     )
                 }
             noteDao.upsert(entity)
+
+            val coordinator = runCatching { indexingCoordinatorProvider.get() }.getOrNull()
+            if (coordinator != null) {
+                val saved = noteDao.getById(receipt.noteId) ?: entity
+                val note =
+                    Note(
+                        id = saved.id,
+                        title = saved.title,
+                        type = saved.type,
+                        folderPath = saved.folderPath,
+                        pinned = saved.pinned,
+                        color = saved.color,
+                        tags = saved.tags,
+                        created = saved.created,
+                        modified = saved.modified,
+                        checksum = saved.checksum,
+                    )
+                val body =
+                    runCatching { noteRepositoryProvider.get().readBody(receipt.noteId) }
+                        .getOrDefault(saved.bodyPreview)
+                coordinator.reindexIfNeeded(note, body)
+            }
         }
     }

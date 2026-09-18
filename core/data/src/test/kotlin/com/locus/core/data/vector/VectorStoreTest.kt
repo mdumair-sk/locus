@@ -3,7 +3,15 @@ package com.locus.core.data.vector
 import android.content.Context
 import androidx.room.Room
 import com.locus.core.data.db.LocusDatabase
+import com.locus.core.domain.notes.Note
+import com.locus.core.domain.notes.NoteRepository
+import com.locus.core.domain.notes.NoteType
+import com.locus.core.domain.notes.RescanReport
 import com.locus.core.domain.search.EmbeddedChunk
+import com.locus.core.domain.search.SearchScope
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.emptyFlow
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.test.runTest
 import org.junit.After
 import org.junit.Assert.assertEquals
@@ -57,6 +65,10 @@ class VectorStoreTest {
         }
 
         override suspend fun getChunksByNoteId(noteId: String): List<ChunkEntity> = emptyList()
+
+        override suspend fun getChunkById(chunkId: String): ChunkEntity? = null
+
+        override suspend fun getChunksByIds(chunkIds: List<String>): List<ChunkEntity> = emptyList()
 
         override suspend fun deleteByNoteId(noteId: String) {}
 
@@ -212,6 +224,96 @@ class VectorStoreTest {
 
             val results = store.search(query, topK = 0)
             assertTrue(results.isEmpty())
+        }
+
+    @Test
+    fun searchWithSearchScopeResolvesNoteIdsViaNoteRepository() =
+        runTest {
+            val query = floatArrayOf(1.0f, 0.0f)
+            val tuples =
+                listOf(
+                    ChunkEmbeddingTuple("chunk-work", "note-work", floatArrayOf(1.0f, 0.0f)),
+                    ChunkEmbeddingTuple("chunk-pers", "note-pers", floatArrayOf(1.0f, 0.0f)),
+                )
+            val now = java.time.Instant.now()
+            val fakeNoteRepository =
+                object : NoteRepository {
+                    override fun observeNotesInFolder(folderPath: String): Flow<List<Note>> = emptyFlow()
+
+                    override fun observeAllNotes(): Flow<List<Note>> =
+                        flowOf(
+                            listOf(
+                                Note(
+                                    "note-work",
+                                    "Work Note",
+                                    NoteType.NOTE,
+                                    "work",
+                                    false,
+                                    null,
+                                    emptyList(),
+                                    now,
+                                    now,
+                                    "c1",
+                                ),
+                                Note(
+                                    "note-pers",
+                                    "Personal Note",
+                                    NoteType.NOTE,
+                                    "personal/sub",
+                                    false,
+                                    null,
+                                    emptyList(),
+                                    now,
+                                    now,
+                                    "c2",
+                                ),
+                            ),
+                        )
+
+                    override suspend fun readBody(noteId: String): String = ""
+
+                    override suspend fun listFolders(): List<String> = emptyList()
+
+                    override suspend fun createFolder(
+                        parentPath: String,
+                        name: String,
+                    ) = Unit
+
+                    override suspend fun createNote(
+                        folderPath: String,
+                        title: String,
+                        type: NoteType,
+                    ): Note = error("Unused")
+
+                    override suspend fun edit(
+                        noteId: String,
+                        newBody: String,
+                    ) = Unit
+
+                    override suspend fun setPinned(
+                        noteId: String,
+                        pinned: Boolean,
+                    ) = Unit
+
+                    override suspend fun setColor(
+                        noteId: String,
+                        color: String?,
+                    ) = Unit
+
+                    override suspend fun rescan(): RescanReport = RescanReport(0, 0, 0)
+                }
+
+            val store = VectorStore(FakeChunkDao(tuples), fakeNoteRepository)
+
+            // Search scoped to "personal" should match "personal/sub"
+            val results =
+                store.search(query, topK = 5, scope = SearchScope(folderPaths = setOf("personal")))
+            assertEquals(1, results.size)
+            assertEquals("chunk-pers", results[0].chunkId)
+
+            // Search scoped to unconstrained scope returns all
+            val allResults = store.search(query, topK = 5, scope = SearchScope())
+            assertEquals(2, allResults.size)
         }
 
     @Test

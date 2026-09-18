@@ -57,5 +57,15 @@ interface ChunkRepository {
         noteIds: Set<String>? = null,
     ): List<RankedChunk>
 
+    suspend fun search(
+        queryVector: FloatArray,
+        topK: Int,
+        scope: SearchScope,
+    ): List<RankedChunk> = search(queryVector, topK, scope.noteIds.ifEmpty { null })
+
+    suspend fun getChunksForNote(noteId: String): List<EmbeddedChunk> = emptyList()
+
+    suspend fun getChunk(chunkId: String): EmbeddedChunk? = null
+
     suspend fun deleteAll()
 }

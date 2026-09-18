@@ -1,12 +1,17 @@
 package com.locus.core.data.vector
 
+import com.locus.core.domain.notes.Note
+import com.locus.core.domain.notes.NoteRepository
 import com.locus.core.domain.search.ChunkMetadata
 import com.locus.core.domain.search.ChunkRepository
 import com.locus.core.domain.search.EmbeddedChunk
 import com.locus.core.domain.search.RankedChunk
+import com.locus.core.domain.search.SearchScope
+import kotlinx.coroutines.flow.first
 import org.json.JSONArray
 import java.util.PriorityQueue
 import javax.inject.Inject
+import javax.inject.Provider
 import javax.inject.Singleton
 import kotlin.math.sqrt
 
@@ -15,7 +20,17 @@ class VectorStore
     @Inject
     constructor(
         private val chunkDao: ChunkDao,
+        private val noteRepositoryProvider: Provider<NoteRepository>,
     ) : ChunkRepository {
+        constructor(
+            chunkDao: ChunkDao,
+            noteRepository: NoteRepository? = null,
+        ) : this(
+            chunkDao = chunkDao,
+            noteRepositoryProvider =
+                Provider { noteRepository ?: error("NoteRepository not provided") },
+        )
+
         companion object {
             private const val MAX_SQL_NOTE_ID_PARAMS = 500
         }
@@ -63,6 +78,89 @@ class VectorStore
             }
             return rankCandidates(candidates, queryVector, queryNorm, topK)
         }
+
+        override suspend fun search(
+            queryVector: FloatArray,
+            topK: Int,
+            scope: SearchScope,
+        ): List<RankedChunk> {
+            val allowedNoteIds = resolveScopeToNoteIds(scope)
+            return search(queryVector, topK, allowedNoteIds)
+        }
+
+        override suspend fun getChunksForNote(noteId: String): List<EmbeddedChunk> {
+            val entities = chunkDao.getChunksByNoteId(noteId)
+            return entities.map { it.toDomain() }
+        }
+
+        override suspend fun getChunk(chunkId: String): EmbeddedChunk? {
+            val entity = chunkDao.getChunkById(chunkId)
+            return entity?.toDomain()
+        }
+
+        private suspend fun resolveScopeToNoteIds(scope: SearchScope): Set<String>? {
+            if (scope.isUnconstrained()) return null
+            val noteRepo = runCatching { noteRepositoryProvider.get() }.getOrNull()
+            return if (noteRepo == null) {
+                scope.noteIds.ifEmpty { null }
+            } else {
+                noteRepo
+                    .observeAllNotes()
+                    .first()
+                    .filter { matchesScope(it, scope) }
+                    .map { it.id }
+                    .toSet()
+            }
+        }
+
+        private fun matchesScope(
+            note: Note,
+            scope: SearchScope,
+        ): Boolean {
+            val after = scope.after
+            val before = scope.before
+            val matchesNoteIds = scope.noteIds.isEmpty() || note.id in scope.noteIds
+            val matchesFolder =
+                scope.folderPaths.isEmpty() || matchesFolder(note.folderPath, scope.folderPaths)
+            val matchesAfter = after == null || !note.modified.isBefore(after)
+            val matchesBefore = before == null || !note.modified.isAfter(before)
+            return matchesNoteIds && matchesFolder && matchesAfter && matchesBefore
+        }
+
+        private fun matchesFolder(
+            entityFolder: String,
+            scopedFolders: Set<String>,
+        ): Boolean {
+            val normalizedEntity = entityFolder.trim().trim('/')
+            return scopedFolders.any { scoped ->
+                val normalizedScoped = scoped.trim().trim('/')
+                if (normalizedScoped.isEmpty()) {
+                    normalizedEntity.isEmpty()
+                } else {
+                    normalizedEntity == normalizedScoped ||
+                        normalizedEntity.startsWith("$normalizedScoped/")
+                }
+            }
+        }
+
+        private fun ChunkEntity.toDomain(): EmbeddedChunk =
+            EmbeddedChunk(
+                chunkId = chunkId,
+                noteId = noteId,
+                headingPath = parseHeadingPath(headingPathJson),
+                text = text,
+                embedding = embedding,
+                embeddingModelId = embeddingModelId,
+                sourceChecksum = sourceChecksum,
+            )
+
+        private fun parseHeadingPath(json: String): List<String> =
+            try {
+                val array = JSONArray(json)
+                List(array.length()) { array.getString(it) }
+            } catch (_: Exception) {
+                emptyList()
+            }
 
         private fun rankCandidates(
             candidates: List<ChunkEmbeddingTuple>,

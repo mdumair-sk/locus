@@ -20,6 +20,12 @@ interface ChunkDao {
     @Query("SELECT * FROM chunks WHERE noteId = :noteId")
     suspend fun getChunksByNoteId(noteId: String): List<ChunkEntity>
 
+    @Query("SELECT * FROM chunks WHERE chunkId = :chunkId LIMIT 1")
+    suspend fun getChunkById(chunkId: String): ChunkEntity?
+
+    @Query("SELECT * FROM chunks WHERE chunkId IN (:chunkIds)")
+    suspend fun getChunksByIds(chunkIds: List<String>): List<ChunkEntity>
+
     @Query("DELETE FROM chunks WHERE noteId = :noteId")
     suspend fun deleteByNoteId(noteId: String)
 
