@@ -34,7 +34,7 @@ open class LlamaRuntime
         private var isLoaded = false
         private var currentModelKind: ModelKind? = null
 
-        val loadedModelKind: ModelKind?
+        open val loadedModelKind: ModelKind?
             get() = currentModelKind
 
         @Suppress("SwallowedException")

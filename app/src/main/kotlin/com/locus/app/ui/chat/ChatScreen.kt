@@ -21,6 +21,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Menu
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
@@ -62,6 +63,7 @@ import kotlinx.coroutines.launch
 private const val CORNER_RADIUS = 16
 private const val SMALL_CORNER_RADIUS = 4
 
+@Suppress("LongMethod")
 @Composable
 fun ChatScreen(
     onNavigateBack: () -> Unit,
@@ -71,6 +73,7 @@ fun ChatScreen(
 ) {
     val uiState by viewModel.uiState.collectAsState()
     var showSessionSheet by remember { mutableStateOf(false) }
+    var showModelPicker by remember { mutableStateOf(false) }
     var inputText by remember { mutableStateOf("") }
     val snackbarHostState = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
@@ -93,6 +96,7 @@ fun ChatScreen(
                         onNavigateBack = onNavigateBack,
                         onOpenSessions = { showSessionSheet = true },
                         onNewSession = { viewModel.createNewSession() },
+                        onModelClick = { showModelPicker = true },
                     ),
             )
         },
@@ -145,6 +149,17 @@ fun ChatScreen(
                     onCreateNewSession = { viewModel.createNewSession() },
                     onDismiss = { showSessionSheet = false },
                 ),
+        )
+    }
+
+    if (showModelPicker) {
+        ModelPickerDialog(
+            currentModel = uiState.activeModel,
+            onSelectModel = { model ->
+                viewModel.selectActiveModel(model)
+                showModelPicker = false
+            },
+            onDismiss = { showModelPicker = false },
         )
     }
 }
@@ -206,6 +221,109 @@ private fun ChatTopBar(
             }
         },
     )
+}
+
+@Composable
+private fun ModelPickerDialog(
+    currentModel: com.locus.core.domain.chat.ActiveModelInfo,
+    onSelectModel: (com.locus.core.domain.chat.ActiveModelInfo) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    val localModel =
+        remember {
+            com.locus.core.domain.chat.ActiveModelInfo(
+                name = "Qwen3-4B",
+                tier = com.locus.core.domain.chat.ModelTier.LOCAL,
+                contextLength = 32_768,
+            )
+        }
+    val cloudModel =
+        remember {
+            com.locus.core.domain.chat.ActiveModelInfo(
+                name = "gemini-3.5-flash-lite",
+                tier = com.locus.core.domain.chat.ModelTier.CLOUD,
+                contextLength = 128_000,
+            )
+        }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = {
+            Text(
+                text = stringResource(R.string.active_model_desc, "Model", "Selection"),
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.Bold,
+            )
+        },
+        text = {
+            Column(
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                ModelOptionItem(
+                    model = localModel,
+                    badge = "Local • Offline (Zero Network)",
+                    isSelected = currentModel.isLocal,
+                    onClick = { onSelectModel(localModel) },
+                )
+                HorizontalDivider()
+                ModelOptionItem(
+                    model = cloudModel,
+                    badge = "Cloud • Gemini API",
+                    isSelected = currentModel.isCloud,
+                    onClick = { onSelectModel(cloudModel) },
+                )
+            }
+        },
+        confirmButton = {},
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Close") } },
+    )
+}
+
+@Composable
+private fun ModelOptionItem(
+    model: com.locus.core.domain.chat.ActiveModelInfo,
+    badge: String,
+    isSelected: Boolean,
+    onClick: () -> Unit,
+) {
+    Surface(
+        modifier = Modifier.fillMaxWidth().clickable(onClick = onClick),
+        shape = RoundedCornerShape(8.dp),
+        color =
+            if (isSelected) {
+                MaterialTheme.colorScheme.primaryContainer
+            } else {
+                MaterialTheme.colorScheme.surface
+            },
+    ) {
+        Row(
+            modifier = Modifier.padding(12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween,
+        ) {
+            Column {
+                Text(
+                    text = model.name,
+                    style = MaterialTheme.typography.bodyLarge,
+                    fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
+                )
+                Text(
+                    text = badge,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            if (isSelected) {
+                Text(
+                    text = "Active",
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.primary,
+                    fontWeight = FontWeight.Bold,
+                )
+            }
+        }
+    }
 }
 
 @Composable
