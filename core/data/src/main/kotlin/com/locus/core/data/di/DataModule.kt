@@ -72,6 +72,12 @@ abstract class DataModule {
     @Binds @Singleton
     abstract fun bindChatRepository(impl: RoomChatRepository): ChatRepository
 
+    @Binds
+    @Singleton
+    abstract fun bindActiveModelRepository(
+        impl: com.locus.core.data.chat.DefaultActiveModelRepository,
+    ): com.locus.core.domain.chat.ActiveModelRepository
+
     companion object {
         @Provides
         @Singleton

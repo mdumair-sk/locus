@@ -1,11 +1,14 @@
 package com.locus.app.ui.chat
 
 import com.locus.app.ui.editor.parseInlineMarkdown
+import com.locus.core.domain.chat.ActiveModelInfo
+import com.locus.core.domain.chat.ActiveModelRepository
 import com.locus.core.domain.chat.ChatMessage
 import com.locus.core.domain.chat.ChatRepository
 import com.locus.core.domain.chat.ChatRole
 import com.locus.core.domain.chat.ChatSession
 import com.locus.core.domain.chat.CitedSource
+import com.locus.core.domain.chat.ModelTier
 import com.locus.core.domain.chat.RagAnswerUseCase
 import com.locus.core.domain.notes.Checksum
 import com.locus.core.domain.notes.Note
@@ -60,6 +63,7 @@ class ChatViewModelTest {
     private lateinit var fakeNoteRepository: FakeNoteRepository
     private lateinit var ragAnswerUseCase: RagAnswerUseCase
     private lateinit var fakeProviderAdapter: FakeProviderAdapter
+    private lateinit var fakeActiveModelRepository: FakeActiveModelRepository
 
     @Before
     fun setUp() {
@@ -99,6 +103,7 @@ class ChatViewModelTest {
                 hybridSearch = hybridSearch,
                 providerAdapter = fakeProviderAdapter,
             )
+        fakeActiveModelRepository = FakeActiveModelRepository()
     }
 
     @After
@@ -106,17 +111,20 @@ class ChatViewModelTest {
         Dispatchers.resetMain()
     }
 
+    private fun createViewModel(): ChatViewModel =
+        ChatViewModel(
+            chatRepository = fakeChatRepository,
+            ragAnswerUseCase = ragAnswerUseCase,
+            noteRepository = fakeNoteRepository,
+            clock = fakeClock,
+            dispatchers = testDispatchers,
+            activeModelRepository = fakeActiveModelRepository,
+        )
+
     @Test
     fun twoNamedSessions_retainIndependentHistory_afterRestart() =
         runTest(testDispatcher) {
-            val vm1 =
-                ChatViewModel(
-                    chatRepository = fakeChatRepository,
-                    ragAnswerUseCase = ragAnswerUseCase,
-                    noteRepository = fakeNoteRepository,
-                    clock = fakeClock,
-                    dispatchers = testDispatchers,
-                )
+            val vm1 = createViewModel()
             advanceUntilIdle()
 
             // 1. Create Session Alpha and append a message
@@ -164,14 +172,7 @@ class ChatViewModelTest {
             assertEquals(listOf(alphaUserMsg), vm1.uiState.value.messages)
 
             // 3. Simulate app restart: brand-new ViewModel instance with the same repository
-            val vm2 =
-                ChatViewModel(
-                    chatRepository = fakeChatRepository,
-                    ragAnswerUseCase = ragAnswerUseCase,
-                    noteRepository = fakeNoteRepository,
-                    clock = fakeClock,
-                    dispatchers = testDispatchers,
-                )
+            val vm2 = createViewModel()
             advanceUntilIdle()
 
             // Verify both sessions exist
@@ -215,6 +216,7 @@ class ChatViewModelTest {
                     noteRepository = fakeNoteRepository,
                     clock = fakeClock,
                     dispatchers = testDispatchers,
+                    activeModelRepository = fakeActiveModelRepository,
                 )
             advanceUntilIdle()
 
@@ -246,6 +248,7 @@ class ChatViewModelTest {
                     noteRepository = fakeNoteRepository,
                     clock = fakeClock,
                     dispatchers = testDispatchers,
+                    activeModelRepository = fakeActiveModelRepository,
                 )
             advanceUntilIdle()
 
@@ -312,6 +315,40 @@ class ChatViewModelTest {
                     ).map { it.item }
             assertTrue(noteIdAnnotations.contains("note-uuid-1"))
             assertTrue(noteIdAnnotations.contains("note-uuid-2"))
+        }
+
+    @Test
+    fun activeModel_updatesImmediatelyWhenRepositoryEmits() =
+        runTest(testDispatcher) {
+            val vm =
+                ChatViewModel(
+                    chatRepository = fakeChatRepository,
+                    ragAnswerUseCase = ragAnswerUseCase,
+                    noteRepository = fakeNoteRepository,
+                    clock = fakeClock,
+                    dispatchers = testDispatchers,
+                    activeModelRepository = fakeActiveModelRepository,
+                )
+            advanceUntilIdle()
+
+            assertEquals("gpt-4o", vm.uiState.value.activeModel.name)
+            assertEquals(
+                com.locus.core.domain.chat.ModelTier.CLOUD,
+                vm.uiState.value.activeModel.tier,
+            )
+            assertTrue(vm.uiState.value.activeModel.isCloud)
+
+            val localModel =
+                com.locus.core.domain.chat.ActiveModelInfo(
+                    name = "qwen-2.5-7b",
+                    tier = com.locus.core.domain.chat.ModelTier.LOCAL,
+                    contextLength = 4096,
+                )
+            fakeActiveModelRepository.setActiveModel(localModel)
+            advanceUntilIdle()
+
+            assertEquals(localModel, vm.uiState.value.activeModel)
+            assertTrue(vm.uiState.value.activeModel.isLocal)
         }
 
     // --- Fakes ---
@@ -427,6 +464,24 @@ class ChatViewModelTest {
         ) = Unit
 
         override suspend fun rescan(): RescanReport = RescanReport(0, 0, 0)
+    }
+
+    private class FakeActiveModelRepository : ActiveModelRepository {
+        private val flow =
+            MutableStateFlow(
+                ActiveModelInfo(
+                    name = "gpt-4o",
+                    tier = ModelTier.CLOUD,
+                ),
+            )
+
+        override fun observeActiveModel(): Flow<ActiveModelInfo> = flow
+
+        override suspend fun setActiveModel(model: ActiveModelInfo) {
+            flow.value = model
+        }
+
+        override fun getActiveModel(): ActiveModelInfo = flow.value
     }
 
     private class FakeProviderAdapter(

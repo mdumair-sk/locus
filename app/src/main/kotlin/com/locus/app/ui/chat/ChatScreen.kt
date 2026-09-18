@@ -87,9 +87,13 @@ fun ChatScreen(
         topBar = {
             ChatTopBar(
                 title = activeSessionName,
-                onNavigateBack = onNavigateBack,
-                onOpenSessions = { showSessionSheet = true },
-                onNewSession = { viewModel.createNewSession() },
+                activeModel = uiState.activeModel,
+                actions =
+                    ChatTopBarActions(
+                        onNavigateBack = onNavigateBack,
+                        onOpenSessions = { showSessionSheet = true },
+                        onNewSession = { viewModel.createNewSession() },
+                    ),
             )
         },
         bottomBar = {
@@ -145,27 +149,42 @@ fun ChatScreen(
     }
 }
 
+private data class ChatTopBarActions(
+    val onNavigateBack: () -> Unit,
+    val onOpenSessions: () -> Unit,
+    val onNewSession: () -> Unit,
+    val onModelClick: () -> Unit = {},
+)
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun ChatTopBar(
     title: String,
-    onNavigateBack: () -> Unit,
-    onOpenSessions: () -> Unit,
-    onNewSession: () -> Unit,
+    activeModel: com.locus.core.domain.chat.ActiveModelInfo,
+    actions: ChatTopBarActions,
     modifier: Modifier = Modifier,
 ) {
     TopAppBar(
         modifier = modifier,
         title = {
-            Text(
-                text = title,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-                style = MaterialTheme.typography.titleMedium,
-            )
+            Column(
+                verticalArrangement = Arrangement.Center,
+            ) {
+                Text(
+                    text = title,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    style = MaterialTheme.typography.titleMedium,
+                )
+                Spacer(modifier = Modifier.height(2.dp))
+                ActiveModelIndicator(
+                    activeModel = activeModel,
+                    onClick = actions.onModelClick,
+                )
+            }
         },
         navigationIcon = {
-            IconButton(onClick = onNavigateBack) {
+            IconButton(onClick = actions.onNavigateBack) {
                 Icon(
                     imageVector = Icons.AutoMirrored.Filled.ArrowBack,
                     contentDescription = stringResource(R.string.back),
@@ -173,13 +192,13 @@ private fun ChatTopBar(
             }
         },
         actions = {
-            IconButton(onClick = onOpenSessions) {
+            IconButton(onClick = actions.onOpenSessions) {
                 Icon(
                     imageVector = Icons.Default.Menu,
                     contentDescription = stringResource(R.string.chat_sessions),
                 )
             }
-            IconButton(onClick = onNewSession) {
+            IconButton(onClick = actions.onNewSession) {
                 Icon(
                     imageVector = Icons.Default.Add,
                     contentDescription = stringResource(R.string.chat_new_session),

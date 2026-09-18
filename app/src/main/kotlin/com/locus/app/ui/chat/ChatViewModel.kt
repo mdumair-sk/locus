@@ -37,6 +37,11 @@ data class ChatUiState(
     val activeSessionId: String? = null,
     val messages: List<ChatMessage> = emptyList(),
     val streamingText: String? = null,
+    val activeModel: com.locus.core.domain.chat.ActiveModelInfo =
+        com.locus.core.domain.chat.ActiveModelInfo(
+            name = "gpt-4o",
+            tier = com.locus.core.domain.chat.ModelTier.CLOUD,
+        ),
 )
 
 @HiltViewModel
@@ -48,6 +53,7 @@ class ChatViewModel
         private val noteRepository: NoteRepository,
         private val clock: Clock,
         private val dispatchers: DispatcherProvider,
+        private val activeModelRepository: com.locus.core.domain.chat.ActiveModelRepository,
     ) : ViewModel() {
         private val _uiState = MutableStateFlow(ChatUiState())
         val uiState: StateFlow<ChatUiState> = _uiState.asStateFlow()
@@ -56,6 +62,7 @@ class ChatViewModel
 
         init {
             observeSessions()
+            observeActiveModel()
         }
 
         private fun observeSessions() {
@@ -78,6 +85,18 @@ class ChatViewModel
                     updateMessagesObservation(_uiState.value.activeSessionId)
                 }
             }
+        }
+
+        private fun observeActiveModel() {
+            viewModelScope.launch(dispatchers.io) {
+                activeModelRepository.observeActiveModel().collectLatest { modelInfo ->
+                    _uiState.update { it.copy(activeModel = modelInfo) }
+                }
+            }
+        }
+
+        fun selectActiveModel(model: com.locus.core.domain.chat.ActiveModelInfo) {
+            viewModelScope.launch(dispatchers.io) { activeModelRepository.setActiveModel(model) }
         }
 
         private fun updateMessagesObservation(sessionId: String?) {

@@ -114,4 +114,7 @@
     <string name="chat_sources">Sources</string>
     <string name="chat_pinned_success">Note created: %1$s</string>
     <string name="chat_view_note">Open</string>
+    <string name="model_tier_local">Local</string>
+    <string name="model_tier_cloud">Cloud</string>
+    <string name="active_model_desc">Active model: %1$s, %2$s</string>
 </resources>

@@ -1,0 +1,10 @@
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24">
+    <!-- Local on-device / hardware chip icon -->
+    <path
+        android:fillColor="#FFFFFFFF"
+        android:pathData="M9,2h2v3H9V2z M13,2h2v3h-2V2z M5,9H2v2h3V9z M5,13H2v2h3v-2z M19,9h3v2h-3V9z M19,13h3v2h-3v-2z M9,19v3h2v-3H9z M13,19v3h2v-3h-2z M6,6h12v12H6V6z M8,8v8h8V8H8z M10,10h4v4h-4V10z" />
+</vector>
