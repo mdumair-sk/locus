@@ -3,13 +3,18 @@ package com.locus.core.ai.models
 import androidx.work.WorkInfo
 import androidx.work.WorkManager
 import com.locus.core.ai.hf.HuggingFaceCatalogClient
+import com.locus.core.ai.llama.DeviceFingerprintProvider
+import com.locus.core.ai.llama.ModelBenchmark
 import com.locus.core.ai.llama.ModelDownloadWorker
 import com.locus.core.ai.llama.ModelDownloader
+import com.locus.core.domain.models.BenchmarkResult
 import com.locus.core.domain.models.DownloadStatus
 import com.locus.core.domain.models.DownloadedModel
 import com.locus.core.domain.models.ModelDownloadProgress
 import com.locus.core.domain.models.ModelFileInfo
 import com.locus.core.domain.models.ModelManagerRepository
+import com.locus.core.domain.models.ModelMeta
+import com.locus.core.domain.models.ModelMetaRepository
 import com.locus.core.domain.models.ModelRepoSummary
 import com.locus.core.domain.models.ModelStorageStats
 import kotlinx.coroutines.flow.Flow
@@ -25,6 +30,9 @@ class DefaultModelManagerRepository
         private val hfClient: HuggingFaceCatalogClient,
         private val modelDownloader: ModelDownloader,
         private val workManager: WorkManager,
+        private val modelBenchmark: ModelBenchmark,
+        private val metaRepository: ModelMetaRepository,
+        private val deviceProvider: DeviceFingerprintProvider,
     ) : ModelManagerRepository {
         override suspend fun searchRepos(query: String): Result<List<ModelRepoSummary>> =
             runCatching {
@@ -85,9 +93,38 @@ class DefaultModelManagerRepository
                 )
             }
 
-        override suspend fun deleteModel(filename: String): Boolean = modelDownloader.deleteModel(filename)
+        override suspend fun deleteModel(filename: String): Boolean {
+            val deleted = modelDownloader.deleteModel(filename)
+            if (deleted) {
+                metaRepository.deleteByModelId(filename)
+            }
+            return deleted
+        }
 
         override suspend fun getStorageStats(): ModelStorageStats = modelDownloader.getStorageStats()
+
+        override fun observeAllModelMeta(): Flow<List<ModelMeta>> {
+            val device = deviceProvider.getDeviceFingerprint()
+            return metaRepository.observeAll(device)
+        }
+
+        override suspend fun saveModelNotesAndRating(
+            modelId: String,
+            notes: String,
+            rating: Int,
+        ) {
+            metaRepository.saveNotesAndRating(
+                modelId = modelId,
+                device = deviceProvider.getDeviceFingerprint(),
+                notes = notes,
+                rating = rating,
+            )
+        }
+
+        override suspend fun runBenchmark(
+            modelId: String,
+            path: String,
+        ): Result<BenchmarkResult> = runCatching { modelBenchmark.run(modelId, path) }
 
         private fun mapWorkInfoToDownloadProgress(workInfo: WorkInfo): ModelDownloadProgress {
             val progressData = workInfo.progress

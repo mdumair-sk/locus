@@ -7,6 +7,7 @@ import com.locus.core.domain.models.DownloadedModel
 import com.locus.core.domain.models.ModelDownloadProgress
 import com.locus.core.domain.models.ModelFileInfo
 import com.locus.core.domain.models.ModelManagerRepository
+import com.locus.core.domain.models.ModelMeta
 import com.locus.core.domain.models.ModelRepoSummary
 import com.locus.core.domain.models.ModelStorageStats
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -30,6 +31,8 @@ data class ModelManagerUiState(
     val isLoadingQuants: Boolean = false,
     val quantFiles: List<ModelFileInfo> = emptyList(),
     val quantsError: String? = null,
+    val modelMetaMap: Map<String, ModelMeta> = emptyMap(),
+    val benchmarkingModelId: String? = null,
     val userMessage: String? = null,
 )
 
@@ -48,6 +51,7 @@ class ModelManagerViewModel
         init {
             refreshStorageAndModels()
             observeDownloads()
+            observeModelMeta()
             searchRepos("qwen")
         }
 
@@ -67,11 +71,20 @@ class ModelManagerViewModel
         private fun observeDownloads() {
             viewModelScope.launch {
                 repository.observeDownloads().collect { downloads ->
-                    val hadCompleted =
-                        downloads.any { it.status == DownloadStatus.COMPLETED }
+                    val hadCompleted = downloads.any { it.status == DownloadStatus.COMPLETED }
                     _uiState.update { it.copy(activeDownloads = downloads) }
                     if (hadCompleted) {
                         refreshStorageAndModels()
+                    }
+                }
+            }
+        }
+
+        private fun observeModelMeta() {
+            viewModelScope.launch {
+                repository.observeAllModelMeta().collect { metaList ->
+                    _uiState.update { state ->
+                        state.copy(modelMetaMap = metaList.associateBy { it.modelId })
                     }
                 }
             }
@@ -106,7 +119,9 @@ class ModelManagerViewModel
                             _uiState.update {
                                 it.copy(
                                     isSearchingRepos = false,
-                                    searchError = error.message ?: "Failed to search repositories",
+                                    searchError =
+                                        error.message
+                                            ?: "Failed to search repositories",
                                 )
                             }
                         }
@@ -139,7 +154,9 @@ class ModelManagerViewModel
                             _uiState.update {
                                 it.copy(
                                     isLoadingQuants = false,
-                                    quantsError = error.message ?: "Failed to list quant files",
+                                    quantsError =
+                                        error.message
+                                            ?: "Failed to list quant files",
                                 )
                             }
                         }
@@ -184,9 +201,7 @@ class ModelManagerViewModel
         fun cancelDownload(workId: String) {
             viewModelScope.launch {
                 repository.cancelDownload(workId)
-                _uiState.update { state ->
-                    state.copy(userMessage = "Download cancelled")
-                }
+                _uiState.update { state -> state.copy(userMessage = "Download cancelled") }
             }
         }
 
@@ -195,13 +210,45 @@ class ModelManagerViewModel
                 val deleted = repository.deleteModel(model.filename)
                 if (deleted) {
                     refreshStorageAndModels()
-                    _uiState.update { state ->
-                        state.copy(userMessage = "Deleted ${model.filename}")
-                    }
+                    _uiState.update { state -> state.copy(userMessage = "Deleted ${model.filename}") }
                 } else {
                     _uiState.update { state ->
                         state.copy(userMessage = "Failed to delete ${model.filename}")
                     }
+                }
+            }
+        }
+
+        fun updateModelNotesAndRating(
+            modelId: String,
+            notes: String,
+            rating: Int,
+        ) {
+            viewModelScope.launch { repository.saveModelNotesAndRating(modelId, notes, rating) }
+        }
+
+        fun benchmarkModel(model: DownloadedModel) {
+            if (_uiState.value.benchmarkingModelId != null) return
+            _uiState.update { it.copy(benchmarkingModelId = model.filename) }
+            viewModelScope.launch {
+                val result = repository.runBenchmark(model.filename, model.path)
+                _uiState.update { state ->
+                    state.copy(
+                        benchmarkingModelId = null,
+                        userMessage =
+                            result.fold(
+                                onSuccess = { bench ->
+                                    "Benchmark completed: ${String.format(
+                                        java.util.Locale.US,
+                                        "%.1f",
+                                        bench.tokensPerSecond,
+                                    )} tok/s"
+                                },
+                                onFailure = { e ->
+                                    "Benchmark failed: ${e.message ?: "Unknown error"}"
+                                },
+                            ),
+                    )
                 }
             }
         }

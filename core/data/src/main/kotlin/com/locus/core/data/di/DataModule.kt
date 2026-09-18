@@ -13,6 +13,8 @@ import com.locus.core.data.files.DataStoreTreeUriStore
 import com.locus.core.data.files.SafNoteFileSource
 import com.locus.core.data.files.SafNoteRepository
 import com.locus.core.data.files.TreeUriStore
+import com.locus.core.data.models.ModelMetaDao
+import com.locus.core.data.models.RoomModelMetaRepository
 import com.locus.core.data.reminders.AndroidAlarmScheduler
 import com.locus.core.data.reminders.ReminderDao
 import com.locus.core.data.search.RoomKeywordSearch
@@ -21,6 +23,7 @@ import com.locus.core.data.vector.VectorStore
 import com.locus.core.domain.backup.BackupSettingsRepository
 import com.locus.core.domain.backup.ImportExportRepository
 import com.locus.core.domain.chat.ChatRepository
+import com.locus.core.domain.models.ModelMetaRepository
 import com.locus.core.domain.notes.FrontmatterParser
 import com.locus.core.domain.notes.NoteRepository
 import com.locus.core.domain.notes.SnakeYamlCodec
@@ -84,6 +87,10 @@ abstract class DataModule {
         impl: com.locus.core.data.settings.AgentSettingsStore,
     ): com.locus.core.domain.settings.AgentSettingsStore
 
+    @Binds
+    @Singleton
+    abstract fun bindModelMetaRepository(impl: RoomModelMetaRepository): ModelMetaRepository
+
     companion object {
         @Provides
         @Singleton
@@ -103,6 +110,7 @@ abstract class DataModule {
                     LocusDatabase.MIGRATION_1_2,
                     LocusDatabase.MIGRATION_2_3,
                     LocusDatabase.MIGRATION_3_4,
+                    LocusDatabase.MIGRATION_4_5,
                 ).build()
 
         @Provides fun provideNoteDao(database: LocusDatabase): NoteDao = database.noteDao()
@@ -113,5 +121,8 @@ abstract class DataModule {
         @Provides fun provideChunkDao(database: LocusDatabase): ChunkDao = database.chunkDao()
 
         @Provides fun provideChatDao(database: LocusDatabase): ChatDao = database.chatDao()
+
+        @Provides
+        fun provideModelMetaDao(database: LocusDatabase): ModelMetaDao = database.modelMetaDao()
     }
 }

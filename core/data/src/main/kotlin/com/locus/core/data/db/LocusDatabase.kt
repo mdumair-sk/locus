@@ -8,6 +8,8 @@ import androidx.sqlite.db.SupportSQLiteDatabase
 import com.locus.core.data.chat.ChatDao
 import com.locus.core.data.chat.ChatMessageEntity
 import com.locus.core.data.chat.ChatSessionEntity
+import com.locus.core.data.models.ModelMetaDao
+import com.locus.core.data.models.ModelMetaEntity
 import com.locus.core.data.reminders.ReminderDao
 import com.locus.core.data.reminders.ReminderEntity
 import com.locus.core.data.vector.ChunkDao
@@ -23,8 +25,9 @@ import com.locus.core.data.vector.EmbeddingConverters
             ChunkEntity::class,
             ChatSessionEntity::class,
             ChatMessageEntity::class,
+            ModelMetaEntity::class,
         ],
-    version = 4,
+    version = 5,
     exportSchema = true,
 )
 @TypeConverters(Converters::class, EmbeddingConverters::class)
@@ -37,12 +40,14 @@ abstract class LocusDatabase : RoomDatabase() {
 
     abstract fun chatDao(): ChatDao
 
+    abstract fun modelMetaDao(): ModelMetaDao
+
     companion object {
         private const val VERSION_1 = 1
         private const val VERSION_2 = 2
         private const val VERSION_3 = 3
         private const val VERSION_4 = 4
-
+        private const val VERSION_5 = 5
         val MIGRATION_1_2 =
             object : Migration(VERSION_1, VERSION_2) {
                 override fun migrate(db: SupportSQLiteDatabase) {
@@ -117,6 +122,25 @@ abstract class LocusDatabase : RoomDatabase() {
                     )
                     db.execSQL(
                         "CREATE INDEX IF NOT EXISTS `index_chat_messages_sessionId` ON `chat_messages` (`sessionId`)",
+                    )
+                }
+            }
+
+        val MIGRATION_4_5 =
+            object : Migration(VERSION_4, VERSION_5) {
+                override fun migrate(db: SupportSQLiteDatabase) {
+                    db.execSQL(
+                        """
+                        CREATE TABLE IF NOT EXISTS `model_meta` (
+                            `modelId` TEXT NOT NULL,
+                            `device` TEXT NOT NULL,
+                            `notes` TEXT NOT NULL DEFAULT '',
+                            `rating` INTEGER NOT NULL DEFAULT 0,
+                            `tokensPerSecond` REAL NOT NULL DEFAULT 0.0,
+                            `benchmarkedAt` INTEGER NOT NULL DEFAULT 0,
+                            PRIMARY KEY(`modelId`, `device`)
+                        )
+                        """.trimIndent(),
                     )
                 }
             }

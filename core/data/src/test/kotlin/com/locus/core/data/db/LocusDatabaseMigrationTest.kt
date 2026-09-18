@@ -1,6 +1,7 @@
 package com.locus.core.data.db
 
 import android.content.Context
+import androidx.sqlite.db.SupportSQLiteDatabase
 import androidx.sqlite.db.SupportSQLiteOpenHelper
 import androidx.sqlite.db.framework.FrameworkSQLiteOpenHelperFactory
 import org.junit.After
@@ -100,7 +101,10 @@ class LocusDatabaseMigrationTest {
 
         val msgCursor =
             v3Db.query(
-                "SELECT id, sessionId, role, content, citationsJson, timestamp FROM chat_messages WHERE id = 'm1'",
+                """
+                SELECT id, sessionId, role, content, citationsJson, timestamp
+                FROM chat_messages WHERE id = 'm1'
+                """.trimIndent(),
             )
         assertTrue(msgCursor.moveToFirst())
         assertEquals("m1", msgCursor.getString(0))
@@ -121,5 +125,79 @@ class LocusDatabaseMigrationTest {
         indexCursor.close()
 
         helper.close()
+    }
+
+    @Test
+    fun migration4To5_createsModelMetaTable() {
+        val v5DbName = "test_migration_4_5.db"
+        context.deleteDatabase(v5DbName)
+        val config =
+            SupportSQLiteOpenHelper.Configuration
+                .builder(context)
+                .name(v5DbName)
+                .callback(
+                    object : SupportSQLiteOpenHelper.Callback(4) {
+                        override fun onCreate(db: SupportSQLiteDatabase) {
+                            db.execSQL(
+                                """
+                                CREATE TABLE IF NOT EXISTS note_index (
+                                    id TEXT NOT NULL PRIMARY KEY,
+                                    title TEXT NOT NULL,
+                                    type TEXT NOT NULL,
+                                    folderPath TEXT NOT NULL,
+                                    pinned INTEGER NOT NULL,
+                                    tags TEXT NOT NULL,
+                                    created INTEGER NOT NULL,
+                                    modified INTEGER NOT NULL,
+                                    checksum TEXT NOT NULL,
+                                    bodyPreview TEXT NOT NULL
+                                )
+                                """.trimIndent(),
+                            )
+                        }
+
+                        override fun onUpgrade(
+                            db: SupportSQLiteDatabase,
+                            oldVersion: Int,
+                            newVersion: Int,
+                        ) {
+                            // No-op for testing
+                        }
+                    },
+                ).build()
+
+        val factory = FrameworkSQLiteOpenHelperFactory()
+        val helper = factory.create(config)
+        val v4Db = helper.writableDatabase
+
+        // Execute MIGRATION_4_5
+        LocusDatabase.MIGRATION_4_5.migrate(v4Db)
+
+        // Verify model_meta exists and allows insertion
+        v4Db.execSQL(
+            """
+            INSERT INTO model_meta (modelId, device, notes, rating, tokensPerSecond, benchmarkedAt)
+            VALUES ('qwen2.5.gguf', 'device-1', 'Great model', 5, 24.5, 1700000000)
+            """.trimIndent(),
+        )
+
+        val cursor =
+            v4Db.query(
+                """
+                SELECT modelId, device, notes, rating, tokensPerSecond, benchmarkedAt
+                FROM model_meta WHERE modelId = 'qwen2.5.gguf'
+                """.trimIndent(),
+            )
+        assertTrue(cursor.moveToFirst())
+        assertEquals("qwen2.5.gguf", cursor.getString(0))
+        assertEquals("device-1", cursor.getString(1))
+        assertEquals("Great model", cursor.getString(2))
+        assertEquals(5, cursor.getInt(3))
+        assertEquals(24.5, cursor.getDouble(4), 1e-6)
+        assertEquals(1700000000L, cursor.getLong(5))
+        cursor.close()
+
+        helper.close()
+        context.deleteDatabase(v5DbName)
     }
 }

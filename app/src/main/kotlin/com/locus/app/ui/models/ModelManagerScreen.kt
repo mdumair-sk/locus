@@ -4,15 +4,19 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.Star
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
@@ -51,9 +55,12 @@ import com.locus.core.domain.models.DownloadStatus
 import com.locus.core.domain.models.DownloadedModel
 import com.locus.core.domain.models.ModelDownloadProgress
 import com.locus.core.domain.models.ModelFileInfo
+import com.locus.core.domain.models.ModelMeta
 import com.locus.core.domain.models.ModelRepoSummary
 import com.locus.core.domain.models.ModelStorageStats
 import java.util.Locale
+
+private const val MAX_RATING_STARS = 5
 
 private const val ONE_KB = 1024L
 private const val ONE_MB = 1024L * 1024L
@@ -67,6 +74,8 @@ private data class ModelManagerActions(
     val onSelectRepo: (ModelRepoSummary) -> Unit,
     val onBackToRepos: () -> Unit,
     val onStartDownload: (ModelFileInfo) -> Unit,
+    val onUpdateNotesAndRating: (String, String, Int) -> Unit,
+    val onBenchmarkModel: (DownloadedModel) -> Unit,
 )
 
 fun formatByteSize(bytes: Long): String {
@@ -109,9 +118,10 @@ fun ModelManagerScreen(
                 onStartDownload = { file ->
                     viewModel.startDownload(uiState.selectedRepo?.id.orEmpty(), file)
                 },
+                onUpdateNotesAndRating = viewModel::updateModelNotesAndRating,
+                onBenchmarkModel = viewModel::benchmarkModel,
             )
         }
-
     Scaffold(
         topBar = {
             TopAppBar(
@@ -164,8 +174,8 @@ private fun ModelManagerContent(
         )
 
         DownloadedModelsSection(
-            models = uiState.downloadedModels,
-            onDeleteModel = actions.onDeleteModelClick,
+            uiState = uiState,
+            actions = actions,
         )
 
         if (uiState.activeDownloads.isNotEmpty()) {
@@ -247,17 +257,19 @@ private fun StorageStatsCard(
 
 @Composable
 private fun DownloadedModelsSection(
-    models: List<DownloadedModel>,
-    onDeleteModel: (DownloadedModel) -> Unit,
+    uiState: ModelManagerUiState,
+    actions: ModelManagerActions,
     modifier: Modifier = Modifier,
 ) {
     Column(modifier = modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
         Text(
-            text = stringResource(R.string.models_downloaded_title) + " (${models.size})",
+            text =
+                stringResource(R.string.models_downloaded_title) +
+                    " (${uiState.downloadedModels.size})",
             style = MaterialTheme.typography.titleMedium,
             fontWeight = FontWeight.Bold,
         )
-        if (models.isEmpty()) {
+        if (uiState.downloadedModels.isEmpty()) {
             Text(
                 text = stringResource(R.string.models_downloaded_empty),
                 style = MaterialTheme.typography.bodyMedium,
@@ -265,8 +277,13 @@ private fun DownloadedModelsSection(
                 modifier = Modifier.padding(vertical = 4.dp),
             )
         } else {
-            models.forEach { model ->
-                DownloadedModelRow(model = model, onDelete = { onDeleteModel(model) })
+            uiState.downloadedModels.forEach { model ->
+                DownloadedModelRow(
+                    model = model,
+                    meta = uiState.modelMetaMap[model.filename],
+                    isBenchmarking = uiState.benchmarkingModelId == model.filename,
+                    actions = actions,
+                )
             }
         }
     }
@@ -275,37 +292,186 @@ private fun DownloadedModelsSection(
 @Composable
 private fun DownloadedModelRow(
     model: DownloadedModel,
+    meta: ModelMeta?,
+    isBenchmarking: Boolean,
+    actions: ModelManagerActions,
+    modifier: Modifier = Modifier,
+) {
+    val currentRating = meta?.rating ?: 0
+    val tokensPerSecond = meta?.tokensPerSecond ?: 0.0
+
+    Card(modifier = modifier.fillMaxWidth()) {
+        Column(
+            modifier = Modifier.fillMaxWidth().padding(12.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            ModelHeaderRow(
+                model = model,
+                onDelete = { actions.onDeleteModelClick(model) },
+            )
+            ModelRatingAndStatsRow(
+                currentRating = currentRating,
+                tokensPerSecond = tokensPerSecond,
+                onSelectRating = { newRating ->
+                    actions.onUpdateNotesAndRating(
+                        model.filename,
+                        meta?.notes.orEmpty(),
+                        newRating,
+                    )
+                },
+            )
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.End,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                ModelBenchmarkButton(
+                    isBenchmarking = isBenchmarking,
+                    onBenchmark = { actions.onBenchmarkModel(model) },
+                )
+            }
+            ModelNotesField(
+                savedNotes = meta?.notes.orEmpty(),
+                onSaveNotes = { newNotes ->
+                    actions.onUpdateNotesAndRating(model.filename, newNotes, currentRating)
+                },
+            )
+        }
+    }
+}
+
+@Composable
+private fun ModelHeaderRow(
+    model: DownloadedModel,
     onDelete: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    Card(modifier = modifier.fillMaxWidth()) {
-        Row(
-            modifier = Modifier.fillMaxWidth().padding(12.dp),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Column(modifier = Modifier.weight(1f).padding(end = 8.dp)) {
-                Text(
-                    text = model.filename,
-                    style = MaterialTheme.typography.bodyMedium,
-                    fontWeight = FontWeight.SemiBold,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
-                Text(
-                    text = formatByteSize(model.sizeBytes),
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
-            IconButton(onClick = onDelete) {
-                Icon(
-                    imageVector = Icons.Default.Delete,
-                    contentDescription = stringResource(R.string.delete_note),
-                    tint = MaterialTheme.colorScheme.error,
-                )
+    Row(
+        modifier = modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Column(modifier = Modifier.weight(1f).padding(end = 8.dp)) {
+            Text(
+                text = model.filename,
+                style = MaterialTheme.typography.bodyMedium,
+                fontWeight = FontWeight.SemiBold,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+            Text(
+                text = formatByteSize(model.sizeBytes),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+        IconButton(onClick = onDelete) {
+            Icon(
+                imageVector = Icons.Default.Delete,
+                contentDescription = stringResource(R.string.delete_note),
+                tint = MaterialTheme.colorScheme.error,
+            )
+        }
+    }
+}
+
+@Composable
+private fun ModelRatingAndStatsRow(
+    currentRating: Int,
+    tokensPerSecond: Double,
+    onSelectRating: (Int) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Row(
+        modifier = modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            for (star in 1..MAX_RATING_STARS) {
+                IconButton(
+                    onClick = {
+                        val newRating = if (currentRating == star) 0 else star
+                        onSelectRating(newRating)
+                    },
+                    modifier = Modifier.size(32.dp),
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Star,
+                        contentDescription = stringResource(R.string.models_rating_label, star),
+                        tint =
+                            if (star <= currentRating) {
+                                MaterialTheme.colorScheme.primary
+                            } else {
+                                MaterialTheme.colorScheme.onSurfaceVariant.copy(
+                                    alpha = 0.3f,
+                                )
+                            },
+                        modifier = Modifier.size(20.dp),
+                    )
+                }
             }
         }
+
+        if (tokensPerSecond > 0.0) {
+            Text(
+                text = stringResource(R.string.models_benchmark_result, tokensPerSecond),
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.primary,
+                fontWeight = FontWeight.Bold,
+            )
+        }
+    }
+}
+
+@Composable
+private fun ModelBenchmarkButton(
+    isBenchmarking: Boolean,
+    onBenchmark: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    OutlinedButton(
+        onClick = onBenchmark,
+        enabled = !isBenchmarking,
+        modifier = modifier,
+    ) {
+        if (isBenchmarking) {
+            CircularProgressIndicator(
+                modifier = Modifier.size(16.dp),
+                strokeWidth = 2.dp,
+            )
+            Spacer(modifier = Modifier.width(8.dp))
+            Text(stringResource(R.string.models_benchmarking_button))
+        } else {
+            Text(stringResource(R.string.models_benchmark_button))
+        }
+    }
+}
+
+@Composable
+private fun ModelNotesField(
+    savedNotes: String,
+    onSaveNotes: (String) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    var notesText by remember(savedNotes) { mutableStateOf(savedNotes) }
+    Row(
+        modifier = modifier.fillMaxWidth(),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        OutlinedTextField(
+            value = notesText,
+            onValueChange = { notesText = it },
+            label = { Text(stringResource(R.string.models_notes_label)) },
+            placeholder = { Text(stringResource(R.string.models_notes_placeholder)) },
+            modifier = Modifier.weight(1f),
+            singleLine = true,
+        )
+        Button(
+            onClick = { onSaveNotes(notesText) },
+            enabled = notesText != savedNotes,
+        ) { Text(stringResource(R.string.models_save_notes)) }
     }
 }
 

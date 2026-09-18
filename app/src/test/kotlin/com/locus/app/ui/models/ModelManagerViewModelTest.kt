@@ -1,11 +1,13 @@
 package com.locus.app.ui.models
 
 import app.cash.turbine.test
+import com.locus.core.domain.models.BenchmarkResult
 import com.locus.core.domain.models.DownloadStatus
 import com.locus.core.domain.models.DownloadedModel
 import com.locus.core.domain.models.ModelDownloadProgress
 import com.locus.core.domain.models.ModelFileInfo
 import com.locus.core.domain.models.ModelManagerRepository
+import com.locus.core.domain.models.ModelMeta
 import com.locus.core.domain.models.ModelRepoSummary
 import com.locus.core.domain.models.ModelStorageStats
 import kotlinx.coroutines.Dispatchers
@@ -162,12 +164,106 @@ class ModelManagerViewModelTest {
                 assertEquals(20, updated.activeDownloads[0].progressPercentage)
             }
         }
+
+    @Test
+    fun observeModelMeta_updatesUiStateModelMetaMap() =
+        runTest {
+            viewModel.uiState.test {
+                val initial = awaitItem()
+                assertTrue(initial.modelMetaMap.isEmpty())
+
+                fakeRepo.emitModelMeta(
+                    listOf(
+                        ModelMeta(
+                            modelId = "qwen-1.gguf",
+                            device = "test-device",
+                            notes = "Very capable",
+                            rating = 5,
+                            tokensPerSecond = 34.2,
+                        ),
+                    ),
+                )
+
+                val updated = awaitItem()
+                assertEquals(1, updated.modelMetaMap.size)
+                val meta = updated.modelMetaMap["qwen-1.gguf"]
+                assertEquals("Very capable", meta?.notes)
+                assertEquals(5, meta?.rating)
+                assertEquals(34.2, meta?.tokensPerSecond ?: 0.0, 1e-6)
+            }
+        }
+
+    @Test
+    fun updateModelNotesAndRating_callsRepository() =
+        runTest {
+            viewModel.updateModelNotesAndRating("qwen-1.gguf", "My custom review", 4)
+            testScheduler.advanceUntilIdle()
+
+            assertEquals("qwen-1.gguf", fakeRepo.lastSavedNotesModelId)
+            assertEquals("My custom review", fakeRepo.lastSavedNotes)
+            assertEquals(4, fakeRepo.lastSavedRating)
+        }
+
+    @Test
+    fun benchmarkModel_onSuccess_updatesStateAndSetsMessage() =
+        runTest {
+            val model =
+                DownloadedModel(
+                    filename = "qwen-1.gguf",
+                    sizeBytes = 1024L,
+                    path = "/models/qwen-1.gguf",
+                )
+
+            viewModel.benchmarkModel(model)
+            testScheduler.advanceUntilIdle()
+
+            val state = viewModel.uiState.value
+            assertNull(state.benchmarkingModelId)
+            assertEquals("Benchmark completed: 42.5 tok/s", state.userMessage)
+        }
+
+    @Test
+    fun benchmarkModel_onFailure_updatesStateAndSetsErrorMessage() =
+        runTest {
+            fakeRepo.benchmarkResultToReturn =
+                Result.failure(RuntimeException("Inference engine error"))
+            val model =
+                DownloadedModel(
+                    filename = "qwen-1.gguf",
+                    sizeBytes = 1024L,
+                    path = "/models/qwen-1.gguf",
+                )
+
+            viewModel.benchmarkModel(model)
+            testScheduler.advanceUntilIdle()
+
+            val state = viewModel.uiState.value
+            assertNull(state.benchmarkingModelId)
+            assertEquals("Benchmark failed: Inference engine error", state.userMessage)
+        }
 }
 
 private class FakeModelManagerRepository : ModelManagerRepository {
     private val downloadsFlow = MutableStateFlow<List<ModelDownloadProgress>>(emptyList())
     var lastEnqueuedFilename: String? = null
     var lastCancelledWorkId: String? = null
+    private val metaFlow = MutableStateFlow<List<ModelMeta>>(emptyList())
+    var lastSavedNotesModelId: String? = null
+    var lastSavedNotes: String? = null
+    var lastSavedRating: Int? = null
+    var benchmarkResultToReturn: Result<BenchmarkResult> =
+        Result.success(
+            BenchmarkResult(
+                tokensPerSecond = 42.5,
+                totalTokens = 128,
+                durationMs = 3000L,
+            ),
+        )
+
+    fun emitModelMeta(list: List<ModelMeta>) {
+        metaFlow.value = list
+    }
+
     private val localModels =
         mutableListOf(
             DownloadedModel(
@@ -246,4 +342,21 @@ private class FakeModelManagerRepository : ModelManagerRepository {
             freeBytes = 50_000_000_000L,
             totalDeviceBytes = 128_000_000_000L,
         )
+
+    override fun observeAllModelMeta(): Flow<List<ModelMeta>> = metaFlow
+
+    override suspend fun saveModelNotesAndRating(
+        modelId: String,
+        notes: String,
+        rating: Int,
+    ) {
+        lastSavedNotesModelId = modelId
+        lastSavedNotes = notes
+        lastSavedRating = rating
+    }
+
+    override suspend fun runBenchmark(
+        modelId: String,
+        path: String,
+    ): Result<BenchmarkResult> = benchmarkResultToReturn
 }

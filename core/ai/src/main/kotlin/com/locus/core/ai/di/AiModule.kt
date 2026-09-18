@@ -4,6 +4,8 @@ import android.content.Context
 import androidx.work.WorkManager
 import com.locus.core.ai.BuildConfig
 import com.locus.core.ai.embedding.EmbeddingRunner
+import com.locus.core.ai.llama.DefaultDeviceFingerprintProvider
+import com.locus.core.ai.llama.DeviceFingerprintProvider
 import com.locus.core.ai.llama.LlamaRuntime
 import com.locus.core.ai.llama.LocalLlamaChatModelClient
 import com.locus.core.ai.llama.ModelDownloader
@@ -79,6 +81,10 @@ abstract class AiModule {
     @Binds
     @Singleton
     abstract fun bindModelManagerRepository(impl: DefaultModelManagerRepository): ModelManagerRepository
+
+    @Binds
+    @Singleton
+    abstract fun bindDeviceFingerprintProvider(impl: DefaultDeviceFingerprintProvider): DeviceFingerprintProvider
 
     companion object {
         @Provides

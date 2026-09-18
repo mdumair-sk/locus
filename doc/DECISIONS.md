@@ -13,3 +13,5 @@
 ## D-5: Phase 1's Chat/RAG routing has no local fallback leg yet (no local chat model exists until Phase 2); P-4 is completed in Prompt 52.
 
 ## D-6: One model resident at a time in LlamaRuntime (M-1). Loading a chat model unloads any resident embedding model and vice-versa. This is a deliberate v1 simplification matching M-1's "CPU-first" resource-conscious framing on mobile devices to constrain RAM usage, not a limitation of the M-1 architecture itself.
+
+## D-7: Model benchmark storage is update-in-place per (modelId, device) pair in ModelMetaEntity, adhering to M-3's singular measured tok/s requirement rather than maintaining an unbounded historical log.

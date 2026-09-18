@@ -23,4 +23,17 @@ interface ModelManagerRepository {
     suspend fun deleteModel(filename: String): Boolean
 
     suspend fun getStorageStats(): ModelStorageStats
+
+    fun observeAllModelMeta(): Flow<List<ModelMeta>>
+
+    suspend fun saveModelNotesAndRating(
+        modelId: String,
+        notes: String,
+        rating: Int,
+    )
+
+    suspend fun runBenchmark(
+        modelId: String,
+        path: String,
+    ): Result<BenchmarkResult>
 }
