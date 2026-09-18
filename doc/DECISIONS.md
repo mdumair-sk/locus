@@ -9,3 +9,5 @@
 ## D-4: llama.cpp pinned to tag v0.4.1 / commit b29c606e28a01b1bc8c1351026a0fa6e616bf6c4, resolved via GitHub Releases API on 2026-09-18.
 
 ## D-5: EmbeddingGemma-300M produces 768-d native embeddings; EmbeddingRunner reduces this to the S-2 specified fixed 512-d output via uniform binning / mean-pooling over the extra dimensions (for $i \in [0, 511]$, averaging dimensions $i + 512 \times k < D$) followed by L2-normalization, preserving energy across all native dimensions while matching the fixed 512-d vector contract.
+
+## D-5: Phase 1's Chat/RAG routing has no local fallback leg yet (no local chat model exists until Phase 2); P-4 is completed in Prompt 52.

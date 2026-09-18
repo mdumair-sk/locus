@@ -4,10 +4,7 @@ package com.locus.core.domain.chat
  * Model tier indicator per SEC-2 / P-4. Distinguishes local on-device models from remote cloud
  * providers.
  */
-enum class ModelTier {
-    LOCAL,
-    CLOUD,
-}
+typealias ModelTier = com.locus.core.domain.routing.ModelTier
 
 /**
  * Metadata for the currently active AI model in Chat.
