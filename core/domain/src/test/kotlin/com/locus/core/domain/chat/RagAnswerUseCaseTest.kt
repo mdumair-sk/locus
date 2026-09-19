@@ -683,4 +683,146 @@ class RagAnswerUseCaseTest {
             assertTrue(recordedPrompt?.contains("bike refuel date") == true)
             assertTrue(recordedPrompt?.contains("1241.43 INR") == true)
         }
+
+    @Test
+    fun conversationalGreetingQuery_yieldsZeroSources_andDoesNotForceCitation() =
+        runTest {
+            val chunks =
+                listOf(
+                    SearchResult(
+                        noteId = "note-1",
+                        title = "Personal Apps",
+                        snippet = "TurboTransfer and locus.",
+                    ),
+                    SearchResult(
+                        noteId = "note-2",
+                        title = "Last Prompt Ran",
+                        snippet = "Prompt #14 completed.",
+                    ),
+                    SearchResult(
+                        noteId = "note-3",
+                        title = "bike refuel date",
+                        snippet = "1241.43 INR fuel.",
+                    ),
+                )
+            var systemPrompt: String? = null
+            val adapter =
+                FakeProviderAdapter { messages ->
+                    systemPrompt = messages.firstOrNull { it.role == ProviderRole.SYSTEM }?.content
+                    listOf(
+                        StreamEvent.TokenDelta("Hello! How can I help you with your notes today?"),
+                        StreamEvent.Done(),
+                    )
+                }
+
+            val hybridSearch =
+                HybridSearchUseCase(
+                    keywordSearch = FakeKeywordSearch(chunks),
+                    chunkRepository = UnavailableChunkRepository(),
+                    embeddingGateway = DummyEmbeddingGateway(),
+                )
+            val useCase =
+                RagAnswerUseCase(
+                    hybridSearch = hybridSearch,
+                    providerAdapter = adapter,
+                )
+
+            val answer = useCase(query = "hi")
+
+            assertEquals("Hello! How can I help you with your notes today?", answer.text)
+            assertFalse("Greeting must not have citation marker appended", answer.text.contains("["))
+            assertTrue("Sources must be empty for conversational query", answer.sources.isEmpty())
+            assertTrue(
+                "System prompt should use conversational instruction without chunks",
+                systemPrompt?.contains("If the user is merely greeting you") == true,
+            )
+            assertFalse(
+                "System prompt must not contain irrelevant chunks",
+                systemPrompt?.contains("bike refuel date") == true,
+            )
+        }
+
+    @Test
+    fun refusalAnswer_whenChunksRetrieved_doesNotForceCitation_andYieldsZeroSources() =
+        runTest {
+            val chunks =
+                listOf(
+                    SearchResult(
+                        noteId = "note-1",
+                        title = "Personal Apps",
+                        snippet = "TurboTransfer and locus.",
+                    ),
+                    SearchResult(
+                        noteId = "note-2",
+                        title = "bike refuel date",
+                        snippet = "1241.43 INR fuel.",
+                    ),
+                )
+            val (useCase, _) =
+                createUseCase(
+                    searchResults = chunks,
+                    cannedEvents =
+                        createCannedTokens(
+                            "I could not find any information about your passport number in your notes.",
+                        ),
+                )
+
+            val answer = useCase(query = "what is my passport number?")
+
+            assertEquals(
+                "I could not find any information about your passport number in your notes.",
+                answer.text,
+            )
+            assertFalse(
+                "Refusal answer must not have citation marker appended",
+                answer.text.contains("["),
+            )
+            assertTrue(
+                "Sources must be empty when no citations exist in text",
+                answer.sources.isEmpty(),
+            )
+        }
+
+    @Test
+    fun conversationalGreetingWithQuestion_stillPerformsRetrieval() =
+        runTest {
+            val chunk =
+                SearchResult(
+                    noteId = "note-fuel",
+                    title = "bike refuel date",
+                    snippet = "1241.43 INR fuel cost.",
+                )
+            var searchCalled = false
+            val search =
+                object : KeywordSearch {
+                    override suspend fun search(
+                        query: String,
+                        scope: SearchScope,
+                    ): List<SearchResult> {
+                        searchCalled = true
+                        return listOf(chunk)
+                    }
+                }
+            val adapter =
+                FakeProviderAdapter {
+                    listOf(
+                        StreamEvent.TokenDelta("The bike was refueled for 1241.43 INR [1]."),
+                        StreamEvent.Done(),
+                    )
+                }
+            val hybridSearch =
+                HybridSearchUseCase(
+                    keywordSearch = search,
+                    chunkRepository = UnavailableChunkRepository(),
+                    embeddingGateway = DummyEmbeddingGateway(),
+                )
+            val useCase = RagAnswerUseCase(hybridSearch = hybridSearch, providerAdapter = adapter)
+
+            val answer = useCase(query = "hi, what do my notes say about the bike refuel?")
+
+            assertTrue("Search must be called for question with greeting prefix", searchCalled)
+            assertEquals(1, answer.sources.size)
+            assertEquals("note-fuel", answer.sources[0].noteId)
+            assertTrue(answer.text.contains("[1]"))
+        }
 }

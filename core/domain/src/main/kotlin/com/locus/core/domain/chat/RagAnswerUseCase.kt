@@ -109,8 +109,14 @@ class RagAnswerUseCase(
         val strippedText = stripOutOfRangeCitations(rawAnswer, maxRange)
         val validatedText = ensureMandatoryCitation(strippedText, query, chunks)
 
+        val hasCitations =
+            CITATION_REGEX.findAll(validatedText).any { match ->
+                val num = match.groupValues[2].toIntOrNull()
+                num != null && num in 1..maxRange
+            }
+
         val sources =
-            if (maxRange > 0) {
+            if (hasCitations && maxRange > 0) {
                 chunks.map { chunk ->
                     CitedSource(
                         noteId = chunk.noteId,
@@ -193,6 +199,7 @@ class RagAnswerUseCase(
             }.trimEnd()
     }
 
+    @Suppress("ReturnCount")
     private fun ensureMandatoryCitation(
         text: String,
         query: String,
@@ -205,6 +212,7 @@ class RagAnswerUseCase(
                 val num = match.groupValues[2].toIntOrNull()
                 num != null && num in 1..maxRange
             }
+        if (isConversationalOrRefusalAnswer(text)) return text
         return if (!hasValidCitation) {
             val trimmed = text.trimEnd()
             val bestIndex = findBestMatchingChunkIndex(text, query, chunks)
@@ -315,6 +323,9 @@ class RagAnswerUseCase(
         scope: SearchScope,
         history: List<ProviderMessage>,
     ): List<SearchResult> {
+        if (isConversationalQuery(query)) {
+            return emptyList()
+        }
         val initial = hybridSearch(query = query, scope = scope)
         return if (initial.results.isNotEmpty()) {
             if (isGeneralNotesSummaryQuery(query) && noteRepository != null) {
@@ -401,6 +412,31 @@ class RagAnswerUseCase(
         return phrases.any { lower.contains(it) }
     }
 
+    private fun isConversationalOrRefusalAnswer(text: String): Boolean {
+        val lower = text.trim().lowercase()
+        return REFUSAL_AND_GREETING_PHRASES.any { lower.contains(it) }
+    }
+
+    private fun isConversationalQuery(query: String): Boolean {
+        val cleaned =
+            query
+                .trim()
+                .lowercase()
+                .replace(PUNCTUATION_REGEX, "")
+                .trim()
+                .replace(WHITESPACE_REGEX, " ")
+
+        if (cleaned.isBlank() || cleaned in CONVERSATIONAL_TARGETS) return true
+
+        val words = cleaned.split(" ")
+        val isShortGreeting =
+            words.size <= MAX_CONVERSATIONAL_WORDS &&
+                CONVERSATIONAL_TARGETS.any { cleaned.contains(it) }
+        val hasSubstantiveKeywords = words.any { it in SUBSTANTIVE_KEYWORDS }
+
+        return isShortGreeting && !hasSubstantiveKeywords
+    }
+
     companion object {
         private const val MAX_CHUNK_PREVIEW_LENGTH = 4000
         private const val MAX_SUMMARY_NOTES = 15
@@ -429,6 +465,84 @@ class RagAnswerUseCase(
                 "list notes",
                 "notes list",
                 "show notes",
+            )
+        private const val MAX_CONVERSATIONAL_WORDS = 5
+        private val CONVERSATIONAL_TARGETS =
+            setOf(
+                "hi",
+                "hello",
+                "hey",
+                "hiya",
+                "howdy",
+                "sup",
+                "yo",
+                "good morning",
+                "good afternoon",
+                "good evening",
+                "good night",
+                "how are you",
+                "how are you doing",
+                "how is it going",
+                "hows it going",
+                "whats up",
+                "what is up",
+                "who are you",
+                "what are you",
+                "what can you do",
+                "help",
+                "thanks",
+                "thank you",
+                "thank you so much",
+                "thx",
+                "bye",
+                "goodbye",
+                "see you",
+                "cya",
+            )
+        private val SUBSTANTIVE_KEYWORDS =
+            setOf(
+                "note",
+                "notes",
+                "find",
+                "search",
+                "show",
+                "cost",
+                "price",
+                "date",
+                "time",
+                "read",
+                "check",
+            )
+        private val REFUSAL_AND_GREETING_PHRASES =
+            listOf(
+                "could not find",
+                "couldnt find",
+                "could'nt find",
+                "cannot find",
+                "cant find",
+                "can't find",
+                "did not find",
+                "didn't find",
+                "no information",
+                "not found in your notes",
+                "not mentioned in your notes",
+                "none of your notes",
+                "no notes found",
+                "there is no mention",
+                "there are no notes",
+                "don't have any notes",
+                "dont have any notes",
+                "no relevant notes",
+                "no relevant information",
+                "how can i help you with your notes",
+                "how can i help you today",
+                "how can i assist you",
+                "i am an ai assistant",
+                "i'm an ai assistant",
+                "you're welcome",
+                "you are welcome",
+                "glad to help",
+                "happy to help",
             )
     }
 }
