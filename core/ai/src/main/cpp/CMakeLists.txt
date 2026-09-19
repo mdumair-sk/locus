@@ -21,6 +21,9 @@ set(LLAMA_BUILD_TOOLS OFF CACHE BOOL "llama: build tools" FORCE)
 set(LLAMA_BUILD_EXAMPLES OFF CACHE BOOL "llama: build examples" FORCE)
 set(LLAMA_BUILD_SERVER OFF CACHE BOOL "llama: build server" FORCE)
 set(LLAMA_BUILD_APP OFF CACHE BOOL "llama: build app" FORCE)
+if (CMAKE_ANDROID_ARCH_ABI STREQUAL "arm64-v8a" OR ANDROID_ABI STREQUAL "arm64-v8a")
+    set(GGML_CPU_ARM_ARCH "armv8.6-a+dotprod+fp16+i8mm" CACHE STRING "ggml: CPU architecture for ARM" FORCE)
+endif()
 
 add_subdirectory(llama.cpp)
 

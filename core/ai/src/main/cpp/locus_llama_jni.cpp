@@ -88,7 +88,8 @@ Java_com_locus_core_ai_llama_LlamaRuntime_nativeLoadModel(
     cparams.n_ctx = target_ctx;
 
     int hardware_threads = static_cast<int>(std::thread::hardware_concurrency());
-    cparams.n_threads = std::max(1, hardware_threads > 0 ? hardware_threads : 4);
+    // On 8-core mobile SoCs (2 Prime + 6 Performance), 6 threads maximizes throughput without core contention
+    cparams.n_threads = std::max(1, hardware_threads >= 8 ? 6 : (hardware_threads > 0 ? hardware_threads : 4));
     cparams.n_threads_batch = cparams.n_threads;
 
     if (g_model_kind == NativeModelKind::EMBEDDING) {
