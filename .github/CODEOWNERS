@@ -1,0 +1,3 @@
+# Protect model catalog from unreviewed modifications (NF-8).
+# HUMAN STEP: Replace '@<maintainer-placeholder-handle>' with the maintainer's real GitHub username or team handle.
+/catalog/ @<maintainer-placeholder-handle>

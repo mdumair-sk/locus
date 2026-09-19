@@ -1,0 +1,312 @@
+name: Catalog Discovery Bot & Protection
+
+on:
+  schedule:
+    # Weekly cron on Sunday at 00:00 UTC (NF-8: weekly scheduled bot, no backend)
+    - cron: '0 0 * * 0'
+  workflow_dispatch:
+    inputs:
+      min_downloads:
+        description: 'Minimum download count threshold'
+        required: false
+        default: '100'
+      limit_per_author:
+        description: 'Maximum models to inspect per author'
+        required: false
+        default: '10'
+  pull_request:
+    paths:
+      - 'catalog/**'
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  # Job 1: Enforces scope restriction on pull requests touching catalog/.
+  # Catalog PRs (bot or trusted-contributor) must never touch files outside catalog/.
+  verify-catalog-scope:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Assert catalog PR touches only catalog/
+        run: |
+          echo "=== Verifying catalog PR changed files ==="
+          git fetch origin ${{ github.base_ref }}
+          CHANGED_FILES=$(git diff --name-only origin/${{ github.base_ref }}...HEAD)
+          echo "Changed files in PR:"
+          echo "$CHANGED_FILES"
+
+          FORBIDDEN_FILES=$(echo "$CHANGED_FILES" | grep -v '^catalog/' || true)
+          if [ -n "$FORBIDDEN_FILES" ]; then
+            echo "::error::Catalog PRs must not modify files outside catalog/! Offending files:"
+            echo "$FORBIDDEN_FILES"
+            exit 1
+          fi
+
+          echo "Validation successful: all modified files are strictly within catalog/."
+
+  # Job 2: Queries Hugging Face API, filters candidate models, and opens draft PR.
+  discover-and-propose:
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.x'
+
+      - name: Discover candidate GGUF models from Hugging Face
+        env:
+          MIN_DOWNLOADS: ${{ github.event.inputs.min_downloads || '100' }}
+          LIMIT_PER_AUTHOR: ${{ github.event.inputs.limit_per_author || '10' }}
+        run: |
+          python3 - << 'EOF'
+          import os
+          import sys
+          import json
+          import re
+          import urllib.request
+
+          # ============================================================================
+          # VERIFIED AUTHORS ALLOWLIST RATIONALE (NF-8):
+          # - Qwen: Official Alibaba Cloud account for Qwen models; primary source of
+          #   modern open-weights architectures with permissive open licenses.
+          # - ggml-org: Official Georgi Gerganov / ggml / llama.cpp organization;
+          #   canonical publisher of official GGUF models (e.g. embeddinggemma).
+          # - unsloth: Highly recognized AI research team specializing in optimized,
+          #   verified GGUF quantization releases.
+          # - bartowski: Industry-standard, trusted community GGUF quantizer with
+          #   reproducible, high-quality quant builds across open model families.
+          # ============================================================================
+          VERIFIED_AUTHORS = ["Qwen", "ggml-org", "unsloth", "bartowski"]
+
+          ALLOWED_LICENSE_SUBSTRINGS = [
+              "apache-2.0",
+              "mit",
+              "bsd-3-clause",
+              "openrail",
+              "llama3",
+              "llama3.1",
+              "llama3.2",
+              "gemma",
+              "cc-by-4.0",
+              "cc-by-nc-4.0",
+          ]
+
+          # Supported mobile quantizations ordered by preference
+          PREFERRED_QUANTS = ["Q4_K_M", "Q8_0", "Q4_0", "Q5_K_M", "Q6_K"]
+          MAX_FILE_SIZE_BYTES = 8 * 1024 * 1024 * 1024  # 8 GB mobile device RAM limit
+
+          min_downloads = int(os.environ.get("MIN_DOWNLOADS", "100"))
+          limit_per_author = int(os.environ.get("LIMIT_PER_AUTHOR", "10"))
+          catalog_path = "catalog/models.json"
+
+          if not os.path.exists(catalog_path):
+              print(f"Error: {catalog_path} not found.", file=sys.stderr)
+              sys.exit(1)
+
+          with open(catalog_path, "r", encoding="utf-8") as f:
+              catalog = json.load(f)
+
+          # Build deduplication set from existing catalog entries
+          existing_pairs = set()
+          existing_ids = set()
+
+          for category in ["chat", "utility", "embeddings", "candidates"]:
+              for entry in catalog.get(category, []):
+                  repo = entry.get("repo", "").strip().lower()
+                  filename = entry.get("filename", "").strip().lower()
+                  if repo and filename:
+                      existing_pairs.add((repo, filename))
+                  entry_id = entry.get("id", "").strip().lower()
+                  if entry_id:
+                      existing_ids.add(entry_id)
+
+          print(f"Loaded {len(existing_pairs)} existing model files from {catalog_path}.")
+
+          def check_license(tags, card_data):
+              if card_data and "license" in card_data:
+                  lic_str = str(card_data["license"]).lower()
+                  if any(allowed in lic_str for allowed in ALLOWED_LICENSE_SUBSTRINGS):
+                      return True
+              for tag in tags:
+                  if tag.lower().startswith("license:"):
+                      lic_str = tag[len("license:"):].lower()
+                      if any(allowed in lic_str for allowed in ALLOWED_LICENSE_SUBSTRINGS):
+                          return True
+              return False
+
+          def select_quant_file(gguf_files):
+              # Filter out multi-part split shards (e.g. -00001-of-00002.gguf)
+              single_files = [
+                  f for f in gguf_files
+                  if not re.search(r'-\d{5}-of-\d{5}\.gguf$', f["path"], re.IGNORECASE)
+              ]
+              candidates = single_files if single_files else gguf_files
+
+              # Match preferred quantization tags
+              for preferred in PREFERRED_QUANTS:
+                  for f in candidates:
+                      if preferred.lower() in f["path"].lower() and f["size"] <= MAX_FILE_SIZE_BYTES and f["oid"]:
+                          return f
+
+              # Fallback to any valid single GGUF within mobile size limit
+              for f in candidates:
+                  if f["size"] <= MAX_FILE_SIZE_BYTES and f["oid"]:
+                      return f
+              return None
+
+          new_candidates = []
+
+          for author in VERIFIED_AUTHORS:
+              print(f"Querying Hugging Face models API for author '{author}'...")
+              url = f"https://huggingface.co/api/models?author={author}&filter=gguf&sort=downloads&direction=-1&limit={limit_per_author}"
+              req = urllib.request.Request(url, headers={"User-Agent": "Locus-Catalog-Discovery/1.0"})
+              try:
+                  with urllib.request.urlopen(req, timeout=15) as resp:
+                      models = json.loads(resp.read().decode("utf-8"))
+              except Exception as e:
+                  print(f"Warning: Failed to fetch models for {author}: {e}", file=sys.stderr)
+                  continue
+
+              for m in models:
+                  downloads = m.get("downloads", 0)
+                  if downloads < min_downloads:
+                      continue
+
+                  tags = m.get("tags", [])
+                  card_data = m.get("cardData", {}) or {}
+                  if not check_license(tags, card_data):
+                      continue
+
+                  repo_id = m.get("id")
+                  if not repo_id:
+                      continue
+
+                  # Fetch repository file tree to inspect GGUF files and Git LFS SHA-256
+                  tree_url = f"https://huggingface.co/api/models/{repo_id}/tree/main"
+                  req_tree = urllib.request.Request(tree_url, headers={"User-Agent": "Locus-Catalog-Discovery/1.0"})
+                  try:
+                      with urllib.request.urlopen(req_tree, timeout=15) as resp_tree:
+                          tree_data = json.loads(resp_tree.read().decode("utf-8"))
+                  except Exception as e:
+                      continue
+
+                  gguf_files = []
+                  for item in tree_data:
+                      path = item.get("path", "")
+                      if path.lower().endswith(".gguf"):
+                          lfs = item.get("lfs") or {}
+                          oid = lfs.get("oid", "")
+                          size = lfs.get("size", item.get("size", 0))
+                          if oid and len(oid) == 64:
+                              gguf_files.append({"path": path, "size": size, "oid": oid})
+
+                  selected = select_quant_file(gguf_files)
+                  if not selected:
+                      continue
+
+                  filename = selected["path"]
+                  pair = (repo_id.strip().lower(), filename.strip().lower())
+                  if pair in existing_pairs:
+                      continue
+
+                  # Generate clean identifier
+                  model_base_name = repo_id.split("/")[-1].replace("-GGUF", "").replace("-gguf", "")
+                  candidate_id = model_base_name
+                  if candidate_id.strip().lower() in existing_ids:
+                      candidate_id = f"{model_base_name}-{selected['path'].split('.')[0]}"
+
+                  # Context length from GGUF metadata or default 4096
+                  gguf_meta = m.get("gguf") or {}
+                  context_len = gguf_meta.get("context_length", 4096)
+                  if not isinstance(context_len, int) or context_len <= 0:
+                      context_len = 4096
+
+                  candidate_entry = {
+                      "id": candidate_id,
+                      "name": model_base_name.replace("-", " "),
+                      "repo": repo_id,
+                      "filename": filename,
+                      "sha256": selected["oid"],
+                      "sizeBytes": selected["size"],
+                      "contextLength": context_len,
+                      "description": f"Discovered from {repo_id} ({downloads:,} downloads, {m.get('likes', 0):,} likes).",
+                      "suggestedCategory": "",
+                  }
+
+                  new_candidates.append(candidate_entry)
+                  existing_pairs.add(pair)
+                  existing_ids.add(candidate_id.strip().lower())
+                  print(f"  + Discovered candidate: {candidate_id} ({repo_id} / {filename})")
+
+          if not new_candidates:
+              print("No new candidate models discovered. Catalog is already up to date.")
+              sys.exit(0)
+
+          if "candidates" not in catalog:
+              catalog["candidates"] = []
+
+          catalog["candidates"].extend(new_candidates)
+
+          with open(catalog_path, "w", encoding="utf-8") as f:
+              json.dump(catalog, f, indent=2)
+              f.write("\n")
+
+          print(f"Successfully appended {len(new_candidates)} candidate model(s) to {catalog_path}.")
+          EOF
+
+      - name: Assert bot modified only catalog/
+        run: |
+          echo "=== Checking repository diff scope ==="
+          CHANGED_FILES=$(git diff --name-only)
+          if [ -n "$CHANGED_FILES" ]; then
+            echo "Modified files:"
+            echo "$CHANGED_FILES"
+            FORBIDDEN_FILES=$(echo "$CHANGED_FILES" | grep -v '^catalog/' || true)
+            if [ -n "$FORBIDDEN_FILES" ]; then
+              echo "::error::Bot modified files outside catalog/! Offending files:"
+              echo "$FORBIDDEN_FILES"
+              exit 1
+            fi
+            echo "Scope check passed: modifications restricted strictly to catalog/."
+          fi
+
+      - name: Create draft PR if changes exist
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          if git diff --quiet catalog/models.json; then
+            echo "No changes detected in catalog/models.json. Skipping PR creation."
+            exit 0
+          fi
+
+          TIMESTAMP=$(date +'%Y%m%d-%H%M%S')
+          DATE_STR=$(date +'%Y-%m-%d')
+          BRANCH_NAME="catalog-bot/discovery-$TIMESTAMP"
+
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+          git checkout -b "$BRANCH_NAME"
+          git add catalog/models.json
+          git commit -m "chore(catalog): candidate model discoveries from Hugging Face [skip ci]"
+          git push origin "$BRANCH_NAME"
+
+          gh pr create \
+            --draft \
+            --title "chore(catalog): candidate model discoveries ($DATE_STR)" \
+            --body-file .github/PULL_REQUEST_TEMPLATE/catalog.md \
+            --base master \
+            --head "$BRANCH_NAME"
