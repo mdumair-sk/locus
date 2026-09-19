@@ -7,6 +7,8 @@ import com.locus.core.domain.chat.ChatRepository
 import com.locus.core.domain.chat.ChatRole
 import com.locus.core.domain.chat.ChatSession
 import com.locus.core.domain.chat.RagAnswerUseCase
+import com.locus.core.domain.models.ModelRegistry
+import com.locus.core.domain.models.RegistryEntry
 import com.locus.core.domain.notes.Note
 import com.locus.core.domain.notes.NoteRepository
 import com.locus.core.domain.notes.NoteType
@@ -42,9 +44,11 @@ data class ChatUiState(
             name = "gpt-4o",
             tier = com.locus.core.domain.chat.ModelTier.CLOUD,
         ),
+    val availableModels: List<RegistryEntry> = emptyList(),
 )
 
 @HiltViewModel
+@Suppress("LongParameterList")
 class ChatViewModel
     @Inject
     constructor(
@@ -54,6 +58,7 @@ class ChatViewModel
         private val clock: Clock,
         private val dispatchers: DispatcherProvider,
         private val activeModelRepository: com.locus.core.domain.chat.ActiveModelRepository,
+        private val modelRegistry: ModelRegistry? = null,
     ) : ViewModel() {
         private val _uiState = MutableStateFlow(ChatUiState())
         val uiState: StateFlow<ChatUiState> = _uiState.asStateFlow()
@@ -63,6 +68,7 @@ class ChatViewModel
         init {
             observeSessions()
             observeActiveModel()
+            observeModelRegistry()
         }
 
         private fun observeSessions() {
@@ -97,6 +103,26 @@ class ChatViewModel
 
         fun selectActiveModel(model: com.locus.core.domain.chat.ActiveModelInfo) {
             viewModelScope.launch(dispatchers.io) { activeModelRepository.setActiveModel(model) }
+        }
+
+        private fun observeModelRegistry() {
+            modelRegistry?.let { registry ->
+                viewModelScope.launch(dispatchers.io) {
+                    registry.observeModels().collectLatest { models ->
+                        _uiState.update { it.copy(availableModels = models) }
+                    }
+                }
+            }
+        }
+
+        fun selectModel(entry: RegistryEntry) {
+            val modelInfo =
+                com.locus.core.domain.chat.ActiveModelInfo(
+                    name = entry.ref.id,
+                    tier = entry.ref.tier,
+                    contextLength = entry.contextLength,
+                )
+            selectActiveModel(modelInfo)
         }
 
         private fun updateMessagesObservation(sessionId: String?) {

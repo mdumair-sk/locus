@@ -150,4 +150,14 @@
     <string name="models_notes_placeholder">Add personal notes about this model…</string>
     <string name="models_save_notes">Save</string>
     <string name="models_rating_label">Rating: %1$d/5</string>
+    <string name="model_picker_title">Choose Model</string>
+    <string name="model_picker_local_section">Local Models</string>
+    <string name="model_picker_cloud_section">Cloud Models</string>
+    <string name="model_picker_offline_badge">Offline</string>
+    <string name="model_picker_cloud_badge">Cloud</string>
+    <string name="model_picker_no_local_models">No local models found in models directory. Copy .gguf files or download from Model Manager.</string>
+    <string name="model_picker_native_tools">Native tools</string>
+    <string name="model_picker_price_format">$%1$.2f/M in</string>
+    <string name="model_picker_benchmark_speed">%1$.1f tok/s</string>
+    <string name="model_picker_active">Active</string>
 </resources>

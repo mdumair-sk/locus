@@ -10,6 +10,8 @@ import com.locus.core.domain.chat.ChatSession
 import com.locus.core.domain.chat.CitedSource
 import com.locus.core.domain.chat.ModelTier
 import com.locus.core.domain.chat.RagAnswerUseCase
+import com.locus.core.domain.models.ModelRegistry
+import com.locus.core.domain.models.RegistryEntry
 import com.locus.core.domain.notes.Checksum
 import com.locus.core.domain.notes.Note
 import com.locus.core.domain.notes.NoteRepository
@@ -21,6 +23,7 @@ import com.locus.core.domain.providers.ProviderCapabilities
 import com.locus.core.domain.providers.ProviderMessage
 import com.locus.core.domain.providers.StreamEvent
 import com.locus.core.domain.providers.ToolSchema
+import com.locus.core.domain.routing.ModelRef
 import com.locus.core.domain.search.ChunkMetadata
 import com.locus.core.domain.search.ChunkRepository
 import com.locus.core.domain.search.EmbeddedChunk
@@ -351,6 +354,45 @@ class ChatViewModelTest {
             assertTrue(vm.uiState.value.activeModel.isLocal)
         }
 
+    @Test
+    fun modelRegistry_emissionsUpdateAvailableModelsInUiState_andSelectModelUpdatesActive() =
+        runTest(testDispatcher) {
+            val localEntry =
+                RegistryEntry(
+                    ref = ModelRef("qwen-3-4b.gguf", ModelTier.LOCAL, null),
+                    contextLength = 32_768,
+                    capabilities = null,
+                    isOffline = true,
+                    benchmarkedTokPerSecond = 18.5,
+                )
+            val fakeRegistry = FakeModelRegistry(listOf(localEntry))
+            val vm =
+                ChatViewModel(
+                    chatRepository = fakeChatRepository,
+                    ragAnswerUseCase = ragAnswerUseCase,
+                    noteRepository = fakeNoteRepository,
+                    clock = fakeClock,
+                    dispatchers = testDispatchers,
+                    activeModelRepository = fakeActiveModelRepository,
+                    modelRegistry = fakeRegistry,
+                )
+            advanceUntilIdle()
+
+            assertEquals(1, vm.uiState.value.availableModels.size)
+            assertEquals(
+                "qwen-3-4b.gguf",
+                vm.uiState.value.availableModels[0]
+                    .ref.id,
+            )
+
+            vm.selectModel(localEntry)
+            advanceUntilIdle()
+
+            assertEquals("qwen-3-4b.gguf", vm.uiState.value.activeModel.name)
+            assertEquals(ModelTier.LOCAL, vm.uiState.value.activeModel.tier)
+            assertEquals(32_768, vm.uiState.value.activeModel.contextLength)
+        }
+
     // --- Fakes ---
 
     private class FakeClock(
@@ -360,6 +402,20 @@ class ChatViewModelTest {
 
         fun advanceSeconds(seconds: Long) {
             currentInstant = currentInstant.plusSeconds(seconds)
+        }
+    }
+
+    private class FakeModelRegistry(
+        initial: List<RegistryEntry> = emptyList(),
+    ) : ModelRegistry {
+        private val flow = MutableStateFlow(initial)
+
+        override fun observeModels(): Flow<List<RegistryEntry>> = flow
+
+        override suspend fun getModels(): List<RegistryEntry> = flow.value
+
+        fun emit(models: List<RegistryEntry>) {
+            flow.value = models
         }
     }
 
