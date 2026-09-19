@@ -69,6 +69,7 @@ private data class BackupUiState(
 fun SettingsScreen(
     onNavigateToTrash: () -> Unit,
     onNavigateToModelManager: () -> Unit = {},
+    onNavigateToUsageSummary: () -> Unit = {},
     modifier: Modifier = Modifier,
     viewModel: SettingsViewModel = hiltViewModel(),
 ) {
@@ -168,6 +169,7 @@ fun SettingsScreen(
             )
 
             LocalModelsCard(onManageModels = onNavigateToModelManager)
+            UsageTrackingCard(onViewUsage = onNavigateToUsageSummary)
 
             ImportExportCard(
                 includeApiKeys = includeApiKeys,
@@ -230,6 +232,33 @@ private fun LocalModelsCard(
                 onClick = onManageModels,
                 modifier = Modifier.fillMaxWidth(),
             ) { Text(stringResource(R.string.settings_models_button)) }
+        }
+    }
+}
+
+@Composable
+private fun UsageTrackingCard(
+    onViewUsage: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Card(modifier = modifier.fillMaxWidth()) {
+        Column(
+            modifier = Modifier.padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            Text(
+                text = stringResource(R.string.settings_usage_title),
+                style = MaterialTheme.typography.titleMedium,
+            )
+            Text(
+                text = stringResource(R.string.settings_usage_subtitle),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            Button(
+                onClick = onViewUsage,
+                modifier = Modifier.fillMaxWidth(),
+            ) { Text(stringResource(R.string.settings_usage_button)) }
         }
     }
 }

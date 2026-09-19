@@ -12,6 +12,8 @@ import com.locus.core.data.models.ModelMetaDao
 import com.locus.core.data.models.ModelMetaEntity
 import com.locus.core.data.reminders.ReminderDao
 import com.locus.core.data.reminders.ReminderEntity
+import com.locus.core.data.usage.UsageDao
+import com.locus.core.data.usage.UsageEntity
 import com.locus.core.data.vector.ChunkDao
 import com.locus.core.data.vector.ChunkEntity
 import com.locus.core.data.vector.EmbeddingConverters
@@ -26,8 +28,9 @@ import com.locus.core.data.vector.EmbeddingConverters
             ChatSessionEntity::class,
             ChatMessageEntity::class,
             ModelMetaEntity::class,
+            UsageEntity::class,
         ],
-    version = 5,
+    version = 6,
     exportSchema = true,
 )
 @TypeConverters(Converters::class, EmbeddingConverters::class)
@@ -42,12 +45,15 @@ abstract class LocusDatabase : RoomDatabase() {
 
     abstract fun modelMetaDao(): ModelMetaDao
 
+    abstract fun usageDao(): UsageDao
+
     companion object {
         private const val VERSION_1 = 1
         private const val VERSION_2 = 2
         private const val VERSION_3 = 3
         private const val VERSION_4 = 4
         private const val VERSION_5 = 5
+        private const val VERSION_6 = 6
         val MIGRATION_1_2 =
             object : Migration(VERSION_1, VERSION_2) {
                 override fun migrate(db: SupportSQLiteDatabase) {
@@ -141,6 +147,30 @@ abstract class LocusDatabase : RoomDatabase() {
                             PRIMARY KEY(`modelId`, `device`)
                         )
                         """.trimIndent(),
+                    )
+                }
+            }
+
+        val MIGRATION_5_6 =
+            object : Migration(VERSION_5, VERSION_6) {
+                override fun migrate(db: SupportSQLiteDatabase) {
+                    db.execSQL(
+                        """
+                        CREATE TABLE IF NOT EXISTS `token_usage` (
+                            `id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+                            `providerId` TEXT NOT NULL,
+                            `modelId` TEXT,
+                            `inputTokens` INTEGER NOT NULL,
+                            `outputTokens` INTEGER NOT NULL,
+                            `timestamp` INTEGER NOT NULL
+                        )
+                        """.trimIndent(),
+                    )
+                    db.execSQL(
+                        "CREATE INDEX IF NOT EXISTS `index_token_usage_providerId` ON `token_usage` (`providerId`)",
+                    )
+                    db.execSQL(
+                        "CREATE INDEX IF NOT EXISTS `index_token_usage_timestamp` ON `token_usage` (`timestamp`)",
                     )
                 }
             }

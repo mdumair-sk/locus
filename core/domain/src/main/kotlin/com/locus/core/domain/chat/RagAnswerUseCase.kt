@@ -8,6 +8,8 @@ import com.locus.core.domain.providers.StreamEvent
 import com.locus.core.domain.search.HybridSearchUseCase
 import com.locus.core.domain.search.SearchResult
 import com.locus.core.domain.search.SearchScope
+import com.locus.core.domain.usage.UsageEvent
+import com.locus.core.domain.usage.UsageTracker
 import kotlinx.coroutines.flow.first
 import javax.inject.Singleton
 
@@ -33,6 +35,7 @@ class RagAnswerUseCase(
     private val noteRepository: NoteRepository? = null,
     private val activeModelRepository: ActiveModelRepository? = null,
     private val localChatClient: ChatModelClient? = null,
+    private val usageTracker: UsageTracker? = null,
 ) {
     constructor(
         hybridSearch: HybridSearchUseCase,
@@ -45,6 +48,7 @@ class RagAnswerUseCase(
         providerAdapter: ProviderAdapter,
     ) : this(hybridSearch, providerAdapter, null, null, null)
 
+    @Suppress("LongMethod", "CyclomaticComplexMethod")
     suspend operator fun invoke(
         query: String,
         scope: SearchScope = SearchScope(),
@@ -85,13 +89,23 @@ class RagAnswerUseCase(
                 activeAdapter.streamChat(messages)
             }
 
+        var reportedUsage: UsageEvent? = null
         streamFlow.collect { event ->
             when (event) {
                 is StreamEvent.TokenDelta -> {
                     textBuffer.append(event.text)
                     onTokenDelta?.invoke(event.text)
                 }
-                is StreamEvent.Done -> {}
+                is StreamEvent.Usage -> {
+                    reportedUsage = event.usage
+                    usageTracker?.track(event.usage)
+                }
+                is StreamEvent.Done -> {
+                    val usage = event.usage ?: reportedUsage
+                    if (usage != null && reportedUsage == null) {
+                        usageTracker?.track(usage)
+                    }
+                }
                 is StreamEvent.Error -> {
                     throw IllegalStateException(event.message, event.cause)
                 }

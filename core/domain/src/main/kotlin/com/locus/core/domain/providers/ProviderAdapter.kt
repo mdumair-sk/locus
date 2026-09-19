@@ -4,6 +4,8 @@ import com.locus.core.domain.chat.ChatModelClient
 import kotlinx.coroutines.flow.Flow
 
 interface ProviderAdapter : ChatModelClient {
+    val providerId: String
+        get() = "openai"
     val capabilities: ProviderCapabilities
 
     fun streamChat(

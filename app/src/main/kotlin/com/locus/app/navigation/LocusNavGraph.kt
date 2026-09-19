@@ -31,6 +31,7 @@ import com.locus.app.ui.grid.GridScreen
 import com.locus.app.ui.models.ModelManagerScreen
 import com.locus.app.ui.search.SearchScreen
 import com.locus.app.ui.settings.SettingsScreen
+import com.locus.app.ui.settings.UsageSummaryScreen
 import com.locus.app.ui.trash.TrashScreen
 import com.locus.app.ui.tree.TreeScreen
 
@@ -119,6 +120,9 @@ private fun NavGraphBuilder.locusNavGraph(navController: NavHostController) {
             onNavigateToModelManager = {
                 navController.navigate(LocusDestinations.MODEL_MANAGER_ROUTE)
             },
+            onNavigateToUsageSummary = {
+                navController.navigate(LocusDestinations.USAGE_SUMMARY_ROUTE)
+            },
         )
     }
     composable(LocusDestinations.SEARCH_ROUTE) {
@@ -162,6 +166,11 @@ private fun NavGraphBuilder.locusNavGraph(navController: NavHostController) {
     }
     composable(LocusDestinations.MODEL_MANAGER_ROUTE) {
         ModelManagerScreen(
+            onNavigateBack = { navController.popBackStack() },
+        )
+    }
+    composable(LocusDestinations.USAGE_SUMMARY_ROUTE) {
+        UsageSummaryScreen(
             onNavigateBack = { navController.popBackStack() },
         )
     }

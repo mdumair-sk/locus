@@ -18,6 +18,9 @@ import com.locus.core.data.models.RoomModelMetaRepository
 import com.locus.core.data.reminders.AndroidAlarmScheduler
 import com.locus.core.data.reminders.ReminderDao
 import com.locus.core.data.search.RoomKeywordSearch
+import com.locus.core.data.usage.PriceTableStore
+import com.locus.core.data.usage.RoomUsageTracker
+import com.locus.core.data.usage.UsageDao
 import com.locus.core.data.vector.ChunkDao
 import com.locus.core.data.vector.VectorStore
 import com.locus.core.domain.backup.BackupSettingsRepository
@@ -31,6 +34,7 @@ import com.locus.core.domain.notes.YamlCodec
 import com.locus.core.domain.reminders.AlarmScheduler
 import com.locus.core.domain.search.ChunkRepository
 import com.locus.core.domain.search.KeywordSearch
+import com.locus.core.domain.usage.UsageTracker
 import dagger.Binds
 import dagger.Module
 import dagger.Provides
@@ -38,6 +42,7 @@ import dagger.hilt.InstallIn
 import dagger.hilt.android.qualifiers.ApplicationContext
 import dagger.hilt.components.SingletonComponent
 import javax.inject.Singleton
+import com.locus.core.domain.usage.PriceTableStore as DomainPriceTableStore
 
 @Module
 @InstallIn(SingletonComponent::class)
@@ -97,6 +102,12 @@ abstract class DataModule {
     @Singleton
     abstract fun bindModelMetaRepository(impl: RoomModelMetaRepository): ModelMetaRepository
 
+    @Binds @Singleton
+    abstract fun bindUsageTracker(impl: RoomUsageTracker): UsageTracker
+
+    @Binds @Singleton
+    abstract fun bindPriceTableStore(impl: PriceTableStore): DomainPriceTableStore
+
     companion object {
         @Provides
         @Singleton
@@ -117,6 +128,7 @@ abstract class DataModule {
                     LocusDatabase.MIGRATION_2_3,
                     LocusDatabase.MIGRATION_3_4,
                     LocusDatabase.MIGRATION_4_5,
+                    LocusDatabase.MIGRATION_5_6,
                 ).build()
 
         @Provides fun provideNoteDao(database: LocusDatabase): NoteDao = database.noteDao()
@@ -130,5 +142,7 @@ abstract class DataModule {
 
         @Provides
         fun provideModelMetaDao(database: LocusDatabase): ModelMetaDao = database.modelMetaDao()
+
+        @Provides fun provideUsageDao(database: LocusDatabase): UsageDao = database.usageDao()
     }
 }

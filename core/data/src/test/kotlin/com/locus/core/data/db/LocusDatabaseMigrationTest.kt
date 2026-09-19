@@ -200,4 +200,85 @@ class LocusDatabaseMigrationTest {
         helper.close()
         context.deleteDatabase(v5DbName)
     }
+
+    @Test
+    fun migration5To6_createsTokenUsageTableAndIndices() {
+        val v6DbName = "test_migration_5_6.db"
+        context.deleteDatabase(v6DbName)
+        val config =
+            SupportSQLiteOpenHelper.Configuration
+                .builder(context)
+                .name(v6DbName)
+                .callback(
+                    object : SupportSQLiteOpenHelper.Callback(5) {
+                        override fun onCreate(db: SupportSQLiteDatabase) {
+                            db.execSQL(
+                                """
+                                CREATE TABLE IF NOT EXISTS `model_meta` (
+                                    `modelId` TEXT NOT NULL,
+                                    `device` TEXT NOT NULL,
+                                    `notes` TEXT NOT NULL DEFAULT '',
+                                    `rating` INTEGER NOT NULL DEFAULT 0,
+                                    `tokensPerSecond` REAL NOT NULL DEFAULT 0.0,
+                                    `benchmarkedAt` INTEGER NOT NULL DEFAULT 0,
+                                    PRIMARY KEY(`modelId`, `device`)
+                                )
+                                """.trimIndent(),
+                            )
+                        }
+
+                        override fun onUpgrade(
+                            db: SupportSQLiteDatabase,
+                            oldVersion: Int,
+                            newVersion: Int,
+                        ) {
+                            // No-op for testing
+                        }
+                    },
+                ).build()
+
+        val factory = FrameworkSQLiteOpenHelperFactory()
+        val helper = factory.create(config)
+        val v5Db = helper.writableDatabase
+
+        // Execute MIGRATION_5_6
+        LocusDatabase.MIGRATION_5_6.migrate(v5Db)
+
+        // Verify token_usage exists and allows insertion
+        v5Db.execSQL(
+            """
+            INSERT INTO token_usage (providerId, modelId, inputTokens, outputTokens, timestamp)
+            VALUES ('openai', 'gpt-4o', 120, 350, 1700000000)
+            """.trimIndent(),
+        )
+
+        val cursor =
+            v5Db.query(
+                """
+                SELECT id, providerId, modelId, inputTokens, outputTokens, timestamp
+                FROM token_usage WHERE providerId = 'openai'
+                """.trimIndent(),
+            )
+        assertTrue(cursor.moveToFirst())
+        assertEquals(1L, cursor.getLong(0))
+        assertEquals("openai", cursor.getString(1))
+        assertEquals("gpt-4o", cursor.getString(2))
+        assertEquals(120L, cursor.getLong(3))
+        assertEquals(350L, cursor.getLong(4))
+        assertEquals(1700000000L, cursor.getLong(5))
+        cursor.close()
+
+        // Verify indices exist
+        val indexCursor = v5Db.query("PRAGMA index_list('token_usage')")
+        val indexNames = mutableListOf<String>()
+        while (indexCursor.moveToNext()) {
+            indexNames.add(indexCursor.getString(1))
+        }
+        indexCursor.close()
+        assertTrue(indexNames.contains("index_token_usage_providerId"))
+        assertTrue(indexNames.contains("index_token_usage_timestamp"))
+
+        helper.close()
+        context.deleteDatabase(v6DbName)
+    }
 }

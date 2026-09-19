@@ -31,6 +31,7 @@ class GeminiAdapter(
     private val model: String = DEFAULT_MODEL,
     override val capabilities: ProviderCapabilities = lookupCapabilities(model),
     private val client: OkHttpClient = OkHttpClient(),
+    override val providerId: String = "gemini",
 ) : ProviderAdapter,
     ChatModelClient {
     override fun streamChat(

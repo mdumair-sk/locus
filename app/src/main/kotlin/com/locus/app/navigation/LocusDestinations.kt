@@ -9,7 +9,7 @@ object LocusDestinations {
     const val EDITOR_ROUTE = "editor/{noteId}"
     const val CHAT_ROUTE = "chat"
     const val MODEL_MANAGER_ROUTE = "model_manager"
-
+    const val USAGE_SUMMARY_ROUTE = "usage_summary"
     const val NOTE_ID_ARG = "noteId"
 
     fun editorRoute(noteId: String): String = "editor/$noteId"

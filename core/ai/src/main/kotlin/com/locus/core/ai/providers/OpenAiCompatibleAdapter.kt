@@ -37,6 +37,7 @@ class OpenAiCompatibleAdapter(
             pricePerMillionOutputTokens = null,
         ),
     private val client: OkHttpClient = OkHttpClient(),
+    override val providerId: String = "openai",
 ) : ProviderAdapter,
     ChatModelClient {
     override fun streamChat(

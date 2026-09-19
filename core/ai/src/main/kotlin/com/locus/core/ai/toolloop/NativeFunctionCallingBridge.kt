@@ -46,6 +46,7 @@ class NativeFunctionCallingBridge(
                     }
                     is StreamEvent.Error -> throw ToolLoopException("Provider stream error: ${event.message}")
                     is StreamEvent.Done -> {}
+                    is StreamEvent.Usage -> {}
                 }
             }
 

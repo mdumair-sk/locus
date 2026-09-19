@@ -175,4 +175,22 @@
     <string name="chat_thermal_warning">Device is warm. Generation throttling is likely.</string>
     <string name="chat_thermal_warning_dismiss">Dismiss thermal warning</string>
     <string name="chat_stop_generation">Stop generating</string>
+    <string name="settings_usage_title">AI Usage &amp; Costs</string>
+    <string name="settings_usage_subtitle">Token usage tracking and editable price table</string>
+    <string name="settings_usage_button">View Usage &amp; Costs</string>
+    <string name="usage_summary_title">Usage &amp; Costs</string>
+    <string name="usage_summary_back">Back</string>
+    <string name="usage_summary_prev_month">Previous month</string>
+    <string name="usage_summary_next_month">Next month</string>
+    <string name="usage_summary_total_cost">Total Cost</string>
+    <string name="usage_summary_total_tokens">Total Tokens</string>
+    <string name="usage_summary_tokens_in">Input: %1$s</string>
+    <string name="usage_summary_tokens_out">Output: %1$s</string>
+    <string name="usage_summary_no_usage">No AI token usage recorded for this month.</string>
+    <string name="usage_summary_price_table_title">Price per Million Tokens</string>
+    <string name="usage_summary_price_table_subtitle">Seeded from provider capabilities. Custom prices override defaults.</string>
+    <string name="usage_summary_input_price_label">Input ($/Mtok)</string>
+    <string name="usage_summary_output_price_label">Output ($/Mtok)</string>
+    <string name="usage_summary_save_price">Save</string>
+    <string name="usage_summary_reset_price">Reset</string>
 </resources>
