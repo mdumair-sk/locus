@@ -5,8 +5,6 @@ import com.locus.core.domain.providers.ProviderAdapter
 import com.locus.core.domain.providers.ProviderMessage
 import com.locus.core.domain.providers.ProviderRole
 import com.locus.core.domain.providers.StreamEvent
-import com.locus.core.domain.routing.ChatRoutingPolicy
-import com.locus.core.domain.routing.ModelRef
 import com.locus.core.domain.search.HybridSearchUseCase
 import com.locus.core.domain.search.SearchResult
 import com.locus.core.domain.search.SearchScope
@@ -32,8 +30,6 @@ import javax.inject.Singleton
 class RagAnswerUseCase(
     private val hybridSearch: HybridSearchUseCase,
     private val providerAdapter: ProviderAdapter,
-    private val routingPolicy: ChatRoutingPolicy? = null,
-    private val adapterResolver: ((ModelRef) -> ProviderAdapter)? = null,
     private val noteRepository: NoteRepository? = null,
     private val activeModelRepository: ActiveModelRepository? = null,
     private val localChatClient: ChatModelClient? = null,
@@ -42,41 +38,12 @@ class RagAnswerUseCase(
         hybridSearch: HybridSearchUseCase,
         providerAdapter: ProviderAdapter,
         noteRepository: NoteRepository,
-    ) : this(hybridSearch, providerAdapter, null, null, noteRepository, null, null)
+    ) : this(hybridSearch, providerAdapter, noteRepository, null, null)
 
     constructor(
         hybridSearch: HybridSearchUseCase,
         providerAdapter: ProviderAdapter,
-    ) : this(hybridSearch, providerAdapter, null, null, null, null, null)
-
-    constructor(
-        hybridSearch: HybridSearchUseCase,
-        providerAdapter: ProviderAdapter,
-        routingPolicy: ChatRoutingPolicy?,
-    ) : this(hybridSearch, providerAdapter, routingPolicy, null, null, null, null)
-
-    constructor(
-        hybridSearch: HybridSearchUseCase,
-        providerAdapter: ProviderAdapter,
-        routingPolicy: ChatRoutingPolicy?,
-        adapterResolver: ((ModelRef) -> ProviderAdapter)?,
-    ) : this(hybridSearch, providerAdapter, routingPolicy, adapterResolver, null, null, null)
-
-    constructor(
-        hybridSearch: HybridSearchUseCase,
-        providerAdapter: ProviderAdapter,
-        noteRepository: NoteRepository?,
-        activeModelRepository: ActiveModelRepository?,
-        localChatClient: ChatModelClient?,
-    ) : this(
-        hybridSearch,
-        providerAdapter,
-        null,
-        null,
-        noteRepository,
-        activeModelRepository,
-        localChatClient,
-    )
+    ) : this(hybridSearch, providerAdapter, null, null, null)
 
     suspend operator fun invoke(
         query: String,
@@ -84,13 +51,7 @@ class RagAnswerUseCase(
         history: List<ProviderMessage> = emptyList(),
         onTokenDelta: ((String) -> Unit)? = null,
     ): RagAnswer {
-        val activeAdapter =
-            if (routingPolicy != null) {
-                val modelRef = routingPolicy.resolve()
-                adapterResolver?.invoke(modelRef) ?: providerAdapter
-            } else {
-                providerAdapter
-            }
+        val activeAdapter = providerAdapter
 
         val rawChunks = resolveSearchChunks(query = query, scope = scope, history = history)
         val noteTitles =
