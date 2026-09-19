@@ -9,6 +9,7 @@ import com.locus.core.ai.llama.DeviceFingerprintProvider
 import com.locus.core.ai.llama.LlamaRuntime
 import com.locus.core.ai.llama.LocalLlamaChatModelClient
 import com.locus.core.ai.llama.ModelDownloader
+import com.locus.core.ai.models.AndroidDeviceCapabilitiesGateway
 import com.locus.core.ai.models.DefaultModelManagerRepository
 import com.locus.core.ai.models.DefaultModelRegistry
 import com.locus.core.ai.providers.GeminiAdapter
@@ -16,6 +17,7 @@ import com.locus.core.ai.providers.OpenAiCompatibleAdapter
 import com.locus.core.domain.chat.ActiveModelRepository
 import com.locus.core.domain.chat.ChatModelClient
 import com.locus.core.domain.chat.RagAnswerUseCase
+import com.locus.core.domain.models.DeviceCapabilitiesGateway
 import com.locus.core.domain.models.ModelManagerRepository
 import com.locus.core.domain.models.ModelRegistry
 import com.locus.core.domain.notes.NoteRepository
@@ -88,6 +90,10 @@ abstract class AiModule {
 
     @Binds @Singleton
     abstract fun bindModelRegistry(impl: DefaultModelRegistry): ModelRegistry
+
+    @Binds
+    @Singleton
+    abstract fun bindDeviceCapabilitiesGateway(impl: AndroidDeviceCapabilitiesGateway): DeviceCapabilitiesGateway
 
     companion object {
         @Provides

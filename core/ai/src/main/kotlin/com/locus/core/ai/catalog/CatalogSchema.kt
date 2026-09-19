@@ -32,6 +32,7 @@ data class CatalogEntry(
     val sizeBytes: Long = 0L,
     val contextLength: Int = 4096,
     val description: String = "",
+    val supportsTools: Boolean = false,
 )
 
 @Serializable

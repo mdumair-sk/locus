@@ -153,6 +153,15 @@
     <string name="models_notes_placeholder">Add personal notes about this model…</string>
     <string name="models_save_notes">Save</string>
     <string name="models_rating_label">Rating: %1$d/5</string>
+    <string name="models_embedding_switch_title">Switch Embedding Model?</string>
+    <string name="models_embedding_switch_warning">Switching to %1$s requires a full re-index of all notes (S-4).</string>
+    <string name="models_embedding_chunks_label">Total chunks to re-index</string>
+    <string name="models_embedding_speed_label">Embedding speed</string>
+    <string name="models_speed_measured">measured</string>
+    <string name="models_speed_estimated">estimated</string>
+    <string name="models_embedding_est_time_label">Estimated re-index time</string>
+    <string name="models_embedding_switch_confirm_button">Switch &amp; Re-index</string>
+    <string name="models_use_for_embeddings">Use for Embeddings</string>
     <string name="model_picker_title">Choose Model</string>
     <string name="model_picker_local_section">Local Models</string>
     <string name="model_picker_cloud_section">Cloud Models</string>

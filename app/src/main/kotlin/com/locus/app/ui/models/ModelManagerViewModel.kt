@@ -11,6 +11,9 @@ import com.locus.core.domain.models.ModelMeta
 import com.locus.core.domain.models.ModelRecommendation
 import com.locus.core.domain.models.ModelRepoSummary
 import com.locus.core.domain.models.ModelStorageStats
+import com.locus.core.domain.models.RecommendationRanker
+import com.locus.core.domain.search.ChunkRepository
+import com.locus.core.domain.search.IndexingCoordinator
 import com.locus.core.domain.settings.DismissedRecommendationsStore
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.Job
@@ -21,6 +24,15 @@ import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import javax.inject.Inject
+
+data class PendingEmbeddingSwitch(
+    val targetModelId: String,
+    val targetModelName: String,
+    val totalChunkCount: Int,
+    val estimatedSeconds: Double,
+    val tokensPerSecond: Double,
+    val isMeasured: Boolean,
+)
 
 data class ModelManagerUiState(
     val storageStats: ModelStorageStats = ModelStorageStats(0L, 0L, 0L),
@@ -38,14 +50,20 @@ data class ModelManagerUiState(
     val modelMetaMap: Map<String, ModelMeta> = emptyMap(),
     val benchmarkingModelId: String? = null,
     val userMessage: String? = null,
+    val pendingEmbeddingSwitch: PendingEmbeddingSwitch? = null,
+    val isReindexing: Boolean = false,
 )
 
 @HiltViewModel
+@Suppress("TooManyFunctions")
 class ModelManagerViewModel
     @Inject
     constructor(
         private val repository: ModelManagerRepository,
         private val dismissedRecommendationsStore: DismissedRecommendationsStore,
+        private val indexingCoordinator: IndexingCoordinator? = null,
+        private val recommendationRanker: RecommendationRanker? = null,
+        private val chunkRepository: ChunkRepository? = null,
     ) : ViewModel() {
         private val _uiState = MutableStateFlow(ModelManagerUiState())
         val uiState: StateFlow<ModelManagerUiState> = _uiState.asStateFlow()
@@ -308,5 +326,68 @@ class ModelManagerViewModel
 
         fun clearUserMessage() {
             _uiState.update { it.copy(userMessage = null) }
+        }
+
+        fun requestEmbeddingModelSwitch(model: DownloadedModel) {
+            requestEmbeddingModelSwitch(model.filename, model.filename, model.sizeBytes)
+        }
+
+        fun requestEmbeddingModelSwitch(
+            modelId: String,
+            modelName: String,
+            sizeBytes: Long,
+        ) {
+            viewModelScope.launch {
+                val totalChunks =
+                    chunkRepository?.countChunks() ?: indexingCoordinator?.getTotalChunkCount() ?: 0
+                val estimate =
+                    recommendationRanker?.estimateReindexTime(
+                        modelId = modelId,
+                        totalChunkCount = totalChunks,
+                        modelSizeBytes = sizeBytes,
+                    )
+                _uiState.update { state ->
+                    state.copy(
+                        pendingEmbeddingSwitch =
+                            PendingEmbeddingSwitch(
+                                targetModelId = modelId,
+                                targetModelName = modelName,
+                                totalChunkCount = estimate?.totalChunkCount ?: totalChunks,
+                                estimatedSeconds = estimate?.estimatedSeconds ?: 0.0,
+                                tokensPerSecond = estimate?.tokensPerSecond ?: 10.0,
+                                isMeasured = estimate?.isMeasured ?: false,
+                            ),
+                    )
+                }
+            }
+        }
+
+        @Suppress("TooGenericExceptionCaught")
+        fun confirmEmbeddingModelSwitch() {
+            val pending = _uiState.value.pendingEmbeddingSwitch ?: return
+            _uiState.update { it.copy(pendingEmbeddingSwitch = null, isReindexing = true) }
+            viewModelScope.launch {
+                try {
+                    indexingCoordinator?.reindexAllForModelChange(pending.targetModelId)
+                    _uiState.update {
+                        it.copy(
+                            isReindexing = false,
+                            userMessage =
+                                "Switched embedding model to ${pending.targetModelName}. Full re-index completed.",
+                        )
+                    }
+                } catch (e: Exception) {
+                    _uiState.update {
+                        it.copy(
+                            isReindexing = false,
+                            userMessage = "Re-indexing failed: ${e.message ?: "Unknown error"}",
+                        )
+                    }
+                }
+            }
+        }
+
+        fun dismissEmbeddingModelSwitch() {
+            _uiState.update { it.copy(pendingEmbeddingSwitch = null) }
         }
     }

@@ -2,20 +2,24 @@ package com.locus.app.ui.models
 
 import app.cash.turbine.test
 import com.locus.core.domain.models.BenchmarkResult
+import com.locus.core.domain.models.DeviceCapabilitiesGateway
 import com.locus.core.domain.models.DownloadStatus
 import com.locus.core.domain.models.DownloadedModel
 import com.locus.core.domain.models.ModelDownloadProgress
 import com.locus.core.domain.models.ModelFileInfo
 import com.locus.core.domain.models.ModelManagerRepository
 import com.locus.core.domain.models.ModelMeta
+import com.locus.core.domain.models.ModelMetaRepository
 import com.locus.core.domain.models.ModelRecommendation
 import com.locus.core.domain.models.ModelRepoSummary
 import com.locus.core.domain.models.ModelStorageStats
+import com.locus.core.domain.models.RecommendationRanker
 import com.locus.core.domain.settings.DismissedRecommendationsStore
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.resetMain
@@ -325,6 +329,81 @@ class ModelManagerViewModelTest {
             assertEquals("Qwen/Qwen3-4B-GGUF", state.searchQuery)
             assertEquals("Qwen/Qwen3-4B-GGUF", state.selectedRepo?.id)
             assertEquals(2, state.quantFiles.size)
+        }
+
+    @Test
+    fun requestEmbeddingModelSwitch_populatesPendingEmbeddingSwitchInUiState() =
+        runTest {
+            val fakeCapabilitiesGateway =
+                object : DeviceCapabilitiesGateway {
+                    override fun getAvailableRamBytes(): Long = 8_000_000_000L
+
+                    override fun getTotalRamBytes(): Long = 12_000_000_000L
+
+                    override fun getAvailableStorageBytes(): Long = 64_000_000_000L
+
+                    override fun getDeviceFingerprint(): String = "test-device"
+                }
+            val fakeMetaRepo =
+                @Suppress("EmptyFunctionBlock")
+                object : ModelMetaRepository {
+                    override fun observeModelMeta(
+                        modelId: String,
+                        device: String,
+                    ): Flow<ModelMeta?> = flowOf(null)
+
+                    override fun observeAll(device: String): Flow<List<ModelMeta>> = flowOf(emptyList())
+
+                    override suspend fun getModelMeta(
+                        modelId: String,
+                        device: String,
+                    ): ModelMeta? = null
+
+                    override suspend fun saveNotesAndRating(
+                        modelId: String,
+                        device: String,
+                        notes: String,
+                        rating: Int,
+                    ) {}
+
+                    override suspend fun saveBenchmarkResult(
+                        modelId: String,
+                        device: String,
+                        tokensPerSecond: Double,
+                        benchmarkedAt: Long,
+                    ) {}
+
+                    override suspend fun deleteByModelId(modelId: String) {}
+                }
+            val ranker = RecommendationRanker(fakeCapabilitiesGateway, fakeMetaRepo)
+
+            val testVm =
+                ModelManagerViewModel(
+                    repository = fakeRepo,
+                    dismissedRecommendationsStore = fakeDismissedStore,
+                    recommendationRanker = ranker,
+                )
+
+            val embeddingModel =
+                DownloadedModel(
+                    filename = "embeddinggemma-300M-Q8_0.gguf",
+                    sizeBytes = 330_000_000L,
+                    path = "/path/to/embeddinggemma-300M-Q8_0.gguf",
+                )
+            testVm.requestEmbeddingModelSwitch(embeddingModel)
+            advanceUntilIdle()
+
+            val pending = testVm.uiState.value.pendingEmbeddingSwitch
+            org.junit.Assert.assertNotNull(pending)
+            assertEquals("embeddinggemma-300M-Q8_0.gguf", pending?.targetModelId)
+            org.junit.Assert.assertTrue((pending?.tokensPerSecond ?: 0.0) > 0.0)
+        }
+
+    @Test
+    fun dismissEmbeddingModelSwitch_clearsPendingEmbeddingSwitch() =
+        runTest {
+            viewModel.dismissEmbeddingModelSwitch()
+            org.junit.Assert.assertNull(viewModel.uiState.value.pendingEmbeddingSwitch)
         }
 }
 

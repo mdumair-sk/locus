@@ -10,4 +10,5 @@ data class ModelRecommendation(
     val contextLength: Int,
     val description: String,
     val task: String,
+    val supportsTools: Boolean = false,
 )

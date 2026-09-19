@@ -83,6 +83,9 @@ private data class ModelManagerActions(
     val onBenchmarkModel: (DownloadedModel) -> Unit,
     val onDismissRecommendation: (String) -> Unit,
     val onSelectRecommendation: (ModelRecommendation) -> Unit,
+    val onRequestEmbeddingSwitch: (DownloadedModel) -> Unit,
+    val onConfirmEmbeddingSwitch: () -> Unit,
+    val onDismissEmbeddingSwitch: () -> Unit,
 )
 
 fun formatByteSize(bytes: Long): String {
@@ -130,6 +133,9 @@ fun ModelManagerScreen(
                 onBenchmarkModel = viewModel::benchmarkModel,
                 onDismissRecommendation = viewModel::dismissRecommendation,
                 onSelectRecommendation = viewModel::selectRecommendation,
+                onRequestEmbeddingSwitch = viewModel::requestEmbeddingModelSwitch,
+                onConfirmEmbeddingSwitch = viewModel::confirmEmbeddingModelSwitch,
+                onDismissEmbeddingSwitch = viewModel::dismissEmbeddingModelSwitch,
             )
         }
     Scaffold(
@@ -163,6 +169,18 @@ fun ModelManagerScreen(
                     modelPendingDelete = null
                 },
                 onDismiss = { modelPendingDelete = null },
+            )
+        }
+
+        uiState.pendingEmbeddingSwitch?.let { pending ->
+            EmbeddingSwitchConfirmDialog(
+                targetModelName = pending.targetModelName,
+                totalChunkCount = pending.totalChunkCount,
+                estimatedTimeSeconds = pending.estimatedSeconds,
+                tokensPerSecond = pending.tokensPerSecond,
+                isMeasuredSpeed = pending.isMeasured,
+                onConfirm = actions.onConfirmEmbeddingSwitch,
+                onDismiss = actions.onDismissEmbeddingSwitch,
             )
         }
     }
@@ -465,9 +483,14 @@ private fun DownloadedModelRow(
             )
             Row(
                 modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.End,
+                horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.End),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
+                if (model.filename.contains("embedding", ignoreCase = true)) {
+                    Button(
+                        onClick = { actions.onRequestEmbeddingSwitch(model) },
+                    ) { Text(stringResource(R.string.models_use_for_embeddings)) }
+                }
                 ModelBenchmarkButton(
                     isBenchmarking = isBenchmarking,
                     onBenchmark = { actions.onBenchmarkModel(model) },

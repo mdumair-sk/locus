@@ -72,4 +72,12 @@ class IndexingCoordinator(
             reindexIfNeeded(note, body)
         }
     }
+
+    suspend fun getTotalChunkCount(): Int = chunkRepository.countChunks()
+
+    suspend fun estimateReindexTime(tokPerSecond: Double): Double {
+        val count = getTotalChunkCount()
+        if (count <= 0 || tokPerSecond <= 0.0) return 0.0
+        return count.toDouble() / tokPerSecond
+    }
 }

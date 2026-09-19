@@ -20,6 +20,8 @@ import com.locus.core.domain.models.ModelMetaRepository
 import com.locus.core.domain.models.ModelRecommendation
 import com.locus.core.domain.models.ModelRepoSummary
 import com.locus.core.domain.models.ModelStorageStats
+import com.locus.core.domain.models.RecommendationRanker
+import com.locus.core.domain.models.TaskRequirements
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
 import java.util.UUID
@@ -38,6 +40,7 @@ class DefaultModelManagerRepository
         private val metaRepository: ModelMetaRepository,
         private val deviceProvider: DeviceFingerprintProvider,
         private val catalogRepository: CatalogRepository,
+        private val recommendationRanker: RecommendationRanker,
     ) : ModelManagerRepository {
         override suspend fun searchRepos(query: String): Result<List<ModelRepoSummary>> =
             runCatching {
@@ -208,15 +211,28 @@ class DefaultModelManagerRepository
 
         override fun observeRecommendations(): Flow<List<ModelRecommendation>> =
             catalogRepository.current().map { catalog ->
-                val list = mutableListOf<ModelRecommendation>()
-                catalog.chat.forEach { entry -> list.add(entry.toDomainRecommendation("Chat")) }
-                catalog.utility.forEach { entry ->
-                    list.add(entry.toDomainRecommendation("Utility"))
-                }
-                catalog.embeddings.forEach { entry ->
-                    list.add(entry.toDomainRecommendation("Embeddings"))
-                }
-                list
+                val chatCandidates = catalog.chat.map { it.toDomainRecommendation("Chat") }
+                val utilityCandidates = catalog.utility.map { it.toDomainRecommendation("Utility") }
+                val embeddingsCandidates =
+                    catalog.embeddings.map { it.toDomainRecommendation("Embeddings") }
+
+                val rankedChat =
+                    recommendationRanker.rank(
+                        chatCandidates,
+                        TaskRequirements(task = "Chat", minContextLength = 4096),
+                    )
+                val rankedUtility =
+                    recommendationRanker.rank(
+                        utilityCandidates,
+                        TaskRequirements(task = "Utility", minContextLength = 2048),
+                    )
+                val rankedEmbeddings =
+                    recommendationRanker.rank(
+                        embeddingsCandidates,
+                        TaskRequirements(task = "Embeddings", minContextLength = 512),
+                    )
+
+                rankedChat + rankedUtility + rankedEmbeddings
             }
 
         private fun CatalogEntry.toDomainRecommendation(task: String): ModelRecommendation =
@@ -230,5 +246,6 @@ class DefaultModelManagerRepository
                 contextLength = contextLength,
                 description = description,
                 task = task,
+                supportsTools = supportsTools,
             )
     }

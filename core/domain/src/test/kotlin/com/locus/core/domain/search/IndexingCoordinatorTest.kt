@@ -57,6 +57,8 @@ class IndexingCoordinatorTest {
             storedChunks.clear()
             metadata.clear()
         }
+
+        override suspend fun countChunks(): Int = storedChunks.values.sumOf { it.size }
     }
 
     @Suppress("EmptyFunctionBlock")
@@ -266,5 +268,56 @@ class IndexingCoordinatorTest {
             assertEquals("new-model", coordinator.currentModelId)
             assertEquals("new-model", chunkRepository.getMetadata("note-a")?.embeddingModelId)
             assertEquals("new-model", chunkRepository.getMetadata("note-b")?.embeddingModelId)
+        }
+
+    @Test
+    fun estimateReindexTime_scalesLinearlyWithChunkCount() =
+        runTest {
+            val embeddingGateway = FakeEmbeddingGateway()
+            val chunkRepository = FakeChunkRepository()
+            val noteRepository = FakeNoteRepository()
+            val coordinator =
+                IndexingCoordinator(
+                    embeddingGateway = embeddingGateway,
+                    chunkRepository = chunkRepository,
+                    noteRepository = noteRepository,
+                )
+
+            val chunks50 =
+                (1..50).map { i ->
+                    EmbeddedChunk(
+                        chunkId = "chunk_$i",
+                        noteId = "note_1",
+                        headingPath = emptyList(),
+                        text = "Chunk text $i",
+                        embedding = floatArrayOf(0.1f),
+                        embeddingModelId = "model",
+                        sourceChecksum = "checksum",
+                    )
+                }
+            chunkRepository.replaceChunksForNote("note_1", chunks50)
+            assertEquals(50, coordinator.getTotalChunkCount())
+
+            val estimate50 = coordinator.estimateReindexTime(tokPerSecond = 25.0)
+            assertEquals(2.0, estimate50, 0.001)
+
+            val chunks100 =
+                (1..100).map { i ->
+                    EmbeddedChunk(
+                        chunkId = "chunk2_$i",
+                        noteId = "note_2",
+                        headingPath = emptyList(),
+                        text = "Chunk text $i",
+                        embedding = floatArrayOf(0.1f),
+                        embeddingModelId = "model",
+                        sourceChecksum = "checksum",
+                    )
+                }
+            chunkRepository.replaceChunksForNote("note_2", chunks100)
+            assertEquals(150, coordinator.getTotalChunkCount())
+
+            val estimate150 = coordinator.estimateReindexTime(tokPerSecond = 25.0)
+            assertEquals(6.0, estimate150, 0.001)
+            assertEquals(estimate50 * 3.0, estimate150, 0.001)
         }
 }

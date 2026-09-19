@@ -71,6 +71,8 @@ class VectorStore
             chunkDao.deleteAll()
         }
 
+        override suspend fun countChunks(): Int = chunkDao.countChunks()
+
         override suspend fun search(
             queryVector: FloatArray,
             topK: Int,

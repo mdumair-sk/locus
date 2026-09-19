@@ -70,4 +70,6 @@ interface ChunkRepository {
     suspend fun getChunk(chunkId: String): EmbeddedChunk? = null
 
     suspend fun deleteAll()
+
+    suspend fun countChunks(): Int = 0
 }
