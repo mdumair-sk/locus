@@ -55,11 +55,9 @@ internal class EmbeddingRunnerGatewayAdapter
             if (!isInitialized) {
                 initMutex.withLock {
                     if (!isInitialized) {
-                        val modelFile = modelDownloader.downloadModelIfMissing()
-                        val loadResult = runtime.loadModel(modelFile.absolutePath)
+                        val loadResult = modelDownloader.loadModel(runtime)
                         check(loadResult.isSuccess) {
-                            "Failed to load embedding model from ${modelFile.absolutePath}: " +
-                                loadResult.exceptionOrNull()?.message
+                            "Failed to load embedding model: ${loadResult.exceptionOrNull()?.message}"
                         }
                         isInitialized = true
                     }

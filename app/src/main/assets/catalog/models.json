@@ -1,11 +1,44 @@
 {
   "schemaVersion": 1,
-  "chat": [],
-  "utility": [],
-  "embeddings": [],
+  "chat": [
+    {
+      "id": "Qwen3-4B",
+      "name": "Qwen3 4B",
+      "repo": "Qwen/Qwen3-4B-GGUF",
+      "filename": "Qwen3-4B-Q4_K_M.gguf",
+      "sha256": "7485fe6f11af29433bc51cab58009521f205840f5b4ae3a32fa7f92e8534fdf5",
+      "sizeBytes": 2497280256,
+      "contextLength": 32768,
+      "description": "Recommended default chat and agent model (4B parameters, Q4_K_M quantization)."
+    }
+  ],
+  "utility": [
+    {
+      "id": "Qwen3-1.7B",
+      "name": "Qwen3 1.7B",
+      "repo": "Qwen/Qwen3-1.7B-GGUF",
+      "filename": "Qwen3-1.7B-Q8_0.gguf",
+      "sha256": "061b54daade076b5d3362dac252678d17da8c68f07560be70818cace6590cb1a",
+      "sizeBytes": 1834426016,
+      "contextLength": 32768,
+      "description": "Recommended default utility model (1.7B parameters, Q8_0 quantization)."
+    }
+  ],
+  "embeddings": [
+    {
+      "id": "embeddinggemma-300m",
+      "name": "EmbeddingGemma 300M",
+      "repo": "ggml-org/embeddinggemma-300m-GGUF",
+      "filename": "embeddinggemma-300M-Q8_0.gguf",
+      "sha256": "b5ce9d77a3fc4b3b39ccb5643c36777911cc4eb46a66962eadfa3f5f60490d63",
+      "sizeBytes": 333590944,
+      "contextLength": 2048,
+      "description": "Recommended default embeddings model (300M parameters, Q8_0 quantization)."
+    }
+  ],
   "routingDefaults": {
-    "chat": "",
-    "utility": "",
-    "embeddings": ""
+    "chat": "Qwen3-4B",
+    "utility": "Qwen3-1.7B",
+    "embeddings": "embeddinggemma-300m"
   }
 }

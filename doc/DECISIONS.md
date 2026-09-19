@@ -15,3 +15,5 @@
 ## D-6: One model resident at a time in LlamaRuntime (M-1). Loading a chat model unloads any resident embedding model and vice-versa. This is a deliberate v1 simplification matching M-1's "CPU-first" resource-conscious framing on mobile devices to constrain RAM usage, not a limitation of the M-1 architecture itself.
 
 ## D-7: Model benchmark storage is update-in-place per (modelId, device) pair in ModelMetaEntity, adhering to M-3's singular measured tok/s requirement rather than maintaining an unbounded historical log.
+
+## D-6: catalog seed checksums resolved via the HF API on 2026-09-19 — see catalog/models.json for the pinned values. (Note: Qwen/Qwen3-1.7B-GGUF provides Qwen3-1.7B-Q8_0.gguf in the official repository; pinned live SHA-256 for Q8_0).

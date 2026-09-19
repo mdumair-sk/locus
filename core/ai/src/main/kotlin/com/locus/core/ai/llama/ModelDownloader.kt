@@ -10,6 +10,7 @@ import androidx.work.Data
 import androidx.work.ExistingWorkPolicy
 import androidx.work.OneTimeWorkRequestBuilder
 import androidx.work.WorkManager
+import com.locus.core.ai.catalog.CatalogRepository
 import com.locus.core.domain.models.ModelStorageStats
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.Dispatchers
@@ -44,6 +45,7 @@ private data class DownloadSpec(
     val progressListener: (suspend (bytesRead: Long, totalBytes: Long) -> Unit)?,
 )
 
+@Suppress("TooManyFunctions")
 @Singleton
 class ModelDownloader
     @Inject
@@ -51,6 +53,7 @@ class ModelDownloader
         @ApplicationContext private val context: Context,
         private val okHttpClient: OkHttpClient,
         private val workManager: WorkManager? = null,
+        private val catalogRepository: CatalogRepository? = null,
     ) {
         companion object {
             const val DEFAULT_HF_REPO = "ggml-org/embeddinggemma-300M-GGUF"
@@ -125,20 +128,94 @@ class ModelDownloader
         suspend fun downloadModelIfMissing(
             repo: String = DEFAULT_HF_REPO,
             filename: String = DEFAULT_MODEL_FILENAME,
+            expectedSha256: String? = null,
         ): File =
             withContext(Dispatchers.IO) {
                 val targetFile = getModelFile(filename)
                 if (targetFile.exists() && targetFile.length() > 0L) {
+                    val requiredSha256 =
+                        if (!expectedSha256.isNullOrBlank()) {
+                            expectedSha256
+                        } else {
+                            val catalog = catalogRepository?.current()?.first()
+                            val entry =
+                                catalog?.let { c ->
+                                    (c.chat + c.utility + c.embeddings).find {
+                                        it.filename.equals(filename, ignoreCase = true) ||
+                                            (
+                                                it.repo.equals(repo, ignoreCase = true) &&
+                                                    it.filename.equals(
+                                                        filename,
+                                                        ignoreCase = true,
+                                                    )
+                                            )
+                                    }
+                                }
+                            entry?.sha256?.takeIf { it.isNotBlank() }
+                        }
+
+                    if (!requiredSha256.isNullOrBlank()) {
+                        val actualSha256 = computeFileSha256(targetFile)
+                        if (!actualSha256.equals(requiredSha256, ignoreCase = true)) {
+                            targetFile.delete()
+                            clearCommittedOffset(filename)
+                            error(
+                                "Checksum mismatch for existing model $filename: " +
+                                    "expected $requiredSha256 but got $actualSha256",
+                            )
+                        }
+                    }
                     return@withContext targetFile
                 }
 
-                val expectedSha256 = fetchExpectedSha256(repo, filename)
+                val resolvedSha256 = resolveExpectedSha256(repo, filename, expectedSha256)
                 val downloadUrl = "https://huggingface.co/$repo/resolve/main/$filename"
                 downloadToFileResumable(
                     url = downloadUrl,
                     filename = filename,
-                    expectedSha256 = expectedSha256,
+                    expectedSha256 = resolvedSha256,
                 )
+            }
+
+        private suspend fun resolveExpectedSha256(
+            repo: String,
+            filename: String,
+            explicitSha256: String?,
+        ): String {
+            if (!explicitSha256.isNullOrBlank()) {
+                return explicitSha256
+            }
+            val catalog = catalogRepository?.current()?.first()
+            val entry =
+                catalog?.let { c ->
+                    (c.chat + c.utility + c.embeddings).find {
+                        it.filename.equals(filename, ignoreCase = true) ||
+                            (
+                                it.repo.equals(repo, ignoreCase = true) &&
+                                    it.filename.equals(filename, ignoreCase = true)
+                            )
+                    }
+                }
+            return entry?.sha256?.takeIf { it.isNotBlank() } ?: fetchExpectedSha256(repo, filename)
+        }
+
+        suspend fun loadModel(
+            runtime: LlamaRuntime,
+            filename: String = DEFAULT_MODEL_FILENAME,
+            repo: String = DEFAULT_HF_REPO,
+            kind: ModelKind = ModelKind.EMBEDDING,
+        ): Result<Unit> =
+            runCatching {
+                val modelFile = downloadModelIfMissing(repo = repo, filename = filename)
+                val loadResult =
+                    if (kind == ModelKind.EMBEDDING) {
+                        runtime.loadModel(modelFile.absolutePath)
+                    } else {
+                        runtime.loadModel(modelFile.absolutePath, kind)
+                    }
+                check(loadResult.isSuccess) {
+                    "Failed to load model from ${modelFile.absolutePath}: ${loadResult.exceptionOrNull()?.message}"
+                }
             }
 
         fun fetchExpectedSha256(
@@ -177,6 +254,17 @@ class ModelDownloader
             withContext(Dispatchers.IO) {
                 val targetFile = getModelFile(filename)
                 if (targetFile.exists() && targetFile.length() > 0L) {
+                    if (expectedSha256.isNotBlank()) {
+                        val actualSha256 = computeFileSha256(targetFile)
+                        if (!actualSha256.equals(expectedSha256, ignoreCase = true)) {
+                            targetFile.delete()
+                            clearCommittedOffset(filename)
+                            error(
+                                "Checksum mismatch for existing model $filename: " +
+                                    "expected $expectedSha256 but got $actualSha256",
+                            )
+                        }
+                    }
                     return@withContext targetFile
                 }
 
