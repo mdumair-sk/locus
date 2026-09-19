@@ -122,6 +122,35 @@ class ModelManagerViewModelTest {
         }
 
     @Test
+    fun removeDownload_dismissesFromActiveDownloadsAndCallsRepository() =
+        runTest {
+            val download =
+                ModelDownloadProgress(
+                    workId = "work-999",
+                    filename = "qwen-to-remove.gguf",
+                    bytesRead = 100L,
+                    totalBytes = 1000L,
+                    progressPercentage = 10,
+                    status = DownloadStatus.DOWNLOADING,
+                )
+            fakeRepo.emitDownloads(listOf(download))
+            advanceUntilIdle()
+
+            assertEquals(1, viewModel.uiState.value.activeDownloads.size)
+
+            viewModel.removeDownload("work-999", "qwen-to-remove.gguf")
+            advanceUntilIdle()
+
+            assertTrue(
+                viewModel.uiState.value.activeDownloads
+                    .isEmpty(),
+            )
+            assertEquals("work-999", fakeRepo.lastRemovedWorkId)
+            assertEquals("qwen-to-remove.gguf", fakeRepo.lastRemovedFilename)
+            assertEquals("Removed qwen-to-remove.gguf from queue", viewModel.uiState.value.userMessage)
+        }
+
+    @Test
     fun deleteModel_removesModelAndRefreshesState() =
         runTest {
             advanceUntilIdle()
@@ -247,6 +276,8 @@ private class FakeModelManagerRepository : ModelManagerRepository {
     private val downloadsFlow = MutableStateFlow<List<ModelDownloadProgress>>(emptyList())
     var lastEnqueuedFilename: String? = null
     var lastCancelledWorkId: String? = null
+    var lastRemovedWorkId: String? = null
+    var lastRemovedFilename: String? = null
     private val metaFlow = MutableStateFlow<List<ModelMeta>>(emptyList())
     var lastSavedNotesModelId: String? = null
     var lastSavedNotes: String? = null
@@ -330,6 +361,14 @@ private class FakeModelManagerRepository : ModelManagerRepository {
 
     override suspend fun cancelDownload(workId: String) {
         lastCancelledWorkId = workId
+    }
+
+    override suspend fun removeDownload(
+        workId: String,
+        filename: String,
+    ) {
+        lastRemovedWorkId = workId
+        lastRemovedFilename = filename
     }
 
     override suspend fun getDownloadedModels(): List<DownloadedModel> = localModels.toList()

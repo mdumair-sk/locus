@@ -80,8 +80,38 @@ class DefaultModelManagerRepository
             }
 
         override suspend fun cancelDownload(workId: String) {
+            val resolvedFilename = resolveFilenameForWork(workId)
             runCatching { workManager.cancelWorkById(UUID.fromString(workId)) }
+            if (resolvedFilename.isNotBlank()) {
+                modelDownloader.deleteModel(resolvedFilename)
+            }
         }
+
+        override suspend fun removeDownload(
+            workId: String,
+            filename: String,
+        ) {
+            val resolvedFilename = filename.ifBlank { resolveFilenameForWork(workId) }
+            runCatching {
+                workManager.cancelWorkById(UUID.fromString(workId))
+                workManager.pruneWork()
+            }
+            if (resolvedFilename.isNotBlank()) {
+                modelDownloader.deleteModel(resolvedFilename)
+            }
+        }
+
+        private fun resolveFilenameForWork(workId: String): String =
+            runCatching {
+                val workInfo = workManager.getWorkInfoById(UUID.fromString(workId)).get()
+                workInfo
+                    ?.tags
+                    ?.firstOrNull {
+                        it.startsWith("tag_model_") &&
+                            it != ModelDownloader.TAG_MODEL_DOWNLOAD
+                    }?.removePrefix("tag_model_")
+                    .orEmpty()
+            }.getOrDefault("")
 
         override suspend fun getDownloadedModels(): List<DownloadedModel> =
             modelDownloader.getDownloadedModels().map { file ->

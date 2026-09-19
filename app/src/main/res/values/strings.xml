@@ -143,6 +143,7 @@
     <string name="models_delete_confirm_msg">Delete %1$s from device storage? This cannot be undone.</string>
     <string name="models_delete_button">Delete</string>
     <string name="models_cancel_button">Cancel</string>
+    <string name="models_remove_button">Remove</string>
     <string name="models_benchmark_button">Load &amp; benchmark</string>
     <string name="models_benchmarking_button">Benchmarking…</string>
     <string name="models_benchmark_result">%1$.1f tok/s</string>

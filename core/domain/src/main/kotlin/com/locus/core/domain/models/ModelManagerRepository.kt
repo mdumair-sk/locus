@@ -18,6 +18,11 @@ interface ModelManagerRepository {
 
     suspend fun cancelDownload(workId: String)
 
+    suspend fun removeDownload(
+        workId: String,
+        filename: String = "",
+    )
+
     suspend fun getDownloadedModels(): List<DownloadedModel>
 
     suspend fun deleteModel(filename: String): Boolean

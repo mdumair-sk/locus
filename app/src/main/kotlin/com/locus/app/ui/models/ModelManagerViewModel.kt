@@ -15,6 +15,7 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import javax.inject.Inject
@@ -44,6 +45,7 @@ class ModelManagerViewModel
     ) : ViewModel() {
         private val _uiState = MutableStateFlow(ModelManagerUiState())
         val uiState: StateFlow<ModelManagerUiState> = _uiState.asStateFlow()
+        private val dismissedDownloadWorkIds = MutableStateFlow<Set<String>>(emptySet())
 
         private var searchJob: Job? = null
         private var quantsJob: Job? = null
@@ -70,13 +72,17 @@ class ModelManagerViewModel
 
         private fun observeDownloads() {
             viewModelScope.launch {
-                repository.observeDownloads().collect { downloads ->
-                    val hadCompleted = downloads.any { it.status == DownloadStatus.COMPLETED }
-                    _uiState.update { it.copy(activeDownloads = downloads) }
-                    if (hadCompleted) {
-                        refreshStorageAndModels()
+                combine(
+                    repository.observeDownloads(),
+                    dismissedDownloadWorkIds,
+                ) { downloads, dismissedIds -> downloads.filter { it.workId !in dismissedIds } }
+                    .collect { downloads ->
+                        val hadCompleted = downloads.any { it.status == DownloadStatus.COMPLETED }
+                        _uiState.update { it.copy(activeDownloads = downloads) }
+                        if (hadCompleted) {
+                            refreshStorageAndModels()
+                        }
                     }
-                }
             }
         }
 
@@ -201,7 +207,23 @@ class ModelManagerViewModel
         fun cancelDownload(workId: String) {
             viewModelScope.launch {
                 repository.cancelDownload(workId)
+                refreshStorageAndModels()
                 _uiState.update { state -> state.copy(userMessage = "Download cancelled") }
+            }
+        }
+
+        fun removeDownload(
+            workId: String,
+            filename: String,
+        ) {
+            dismissedDownloadWorkIds.update { it + workId }
+            viewModelScope.launch {
+                repository.removeDownload(workId, filename)
+                refreshStorageAndModels()
+                _uiState.update { state ->
+                    val label = filename.ifBlank { "Download" }
+                    state.copy(userMessage = "Removed $label from queue")
+                }
             }
         }
 

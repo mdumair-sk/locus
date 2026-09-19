@@ -14,6 +14,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Star
@@ -69,6 +70,7 @@ private const val ONE_GB = 1024L * 1024L * 1024L
 private data class ModelManagerActions(
     val onDeleteModelClick: (DownloadedModel) -> Unit,
     val onCancelDownload: (String) -> Unit,
+    val onRemoveDownload: (String, String) -> Unit,
     val onSearchQueryChange: (String) -> Unit,
     val onSearch: () -> Unit,
     val onSelectRepo: (ModelRepoSummary) -> Unit,
@@ -111,6 +113,7 @@ fun ModelManagerScreen(
             ModelManagerActions(
                 onDeleteModelClick = { modelPendingDelete = it },
                 onCancelDownload = viewModel::cancelDownload,
+                onRemoveDownload = viewModel::removeDownload,
                 onSearchQueryChange = viewModel::onSearchQueryChange,
                 onSearch = { viewModel.searchRepos() },
                 onSelectRepo = viewModel::selectRepo,
@@ -182,6 +185,7 @@ private fun ModelManagerContent(
             ActiveDownloadsSection(
                 downloads = uiState.activeDownloads,
                 onCancelDownload = actions.onCancelDownload,
+                onRemoveDownload = actions.onRemoveDownload,
             )
         }
 
@@ -479,6 +483,7 @@ private fun ModelNotesField(
 private fun ActiveDownloadsSection(
     downloads: List<ModelDownloadProgress>,
     onCancelDownload: (String) -> Unit,
+    onRemoveDownload: (String, String) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     Column(modifier = modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -488,7 +493,11 @@ private fun ActiveDownloadsSection(
             fontWeight = FontWeight.Bold,
         )
         downloads.forEach { download ->
-            ActiveDownloadRow(download = download, onCancel = { onCancelDownload(download.workId) })
+            ActiveDownloadRow(
+                download = download,
+                onCancel = { onCancelDownload(download.workId) },
+                onRemove = { onRemoveDownload(download.workId, download.filename) },
+            )
         }
     }
 }
@@ -497,6 +506,7 @@ private fun ActiveDownloadsSection(
 private fun ActiveDownloadRow(
     download: ModelDownloadProgress,
     onCancel: () -> Unit,
+    onRemove: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     Card(modifier = modifier.fillMaxWidth()) {
@@ -504,24 +514,11 @@ private fun ActiveDownloadRow(
             modifier = Modifier.padding(12.dp),
             verticalArrangement = Arrangement.spacedBy(6.dp),
         ) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Text(
-                    text = download.filename.ifBlank { "Downloading model…" },
-                    style = MaterialTheme.typography.bodyMedium,
-                    fontWeight = FontWeight.SemiBold,
-                    modifier = Modifier.weight(1f),
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
-                OutlinedButton(onClick = onCancel) {
-                    Text(stringResource(R.string.models_cancel_button))
-                }
-            }
-
+            ActiveDownloadHeaderRow(
+                download = download,
+                onCancel = onCancel,
+                onRemove = onRemove,
+            )
             if (download.status == DownloadStatus.DOWNLOADING && download.totalBytes > 0L) {
                 LinearProgressIndicator(
                     progress = {
@@ -559,6 +556,51 @@ private fun ActiveDownloadRow(
                         color = MaterialTheme.colorScheme.error,
                     )
                 }
+            }
+        }
+    }
+}
+
+@Composable
+private fun ActiveDownloadHeaderRow(
+    download: ModelDownloadProgress,
+    onCancel: () -> Unit,
+    onRemove: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Row(
+        modifier = modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(
+            text = download.filename.ifBlank { "Downloading model…" },
+            style = MaterialTheme.typography.bodyMedium,
+            fontWeight = FontWeight.SemiBold,
+            modifier = Modifier.weight(1f),
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+        )
+        if (download.status == DownloadStatus.DOWNLOADING ||
+            download.status == DownloadStatus.PENDING
+        ) {
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(4.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                OutlinedButton(onClick = onCancel) {
+                    Text(stringResource(R.string.models_cancel_button))
+                }
+                IconButton(onClick = onRemove) {
+                    Icon(
+                        imageVector = Icons.Default.Close,
+                        contentDescription = stringResource(R.string.models_remove_button),
+                    )
+                }
+            }
+        } else {
+            OutlinedButton(onClick = onRemove) {
+                Text(stringResource(R.string.models_remove_button))
             }
         }
     }
