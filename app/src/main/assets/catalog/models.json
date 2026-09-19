@@ -1,0 +1,11 @@
+{
+  "schemaVersion": 1,
+  "chat": [],
+  "utility": [],
+  "embeddings": [],
+  "routingDefaults": {
+    "chat": "",
+    "utility": "",
+    "embeddings": ""
+  }
+}

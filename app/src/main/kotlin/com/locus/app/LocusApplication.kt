@@ -5,6 +5,7 @@ import androidx.hilt.work.HiltWorkerFactory
 import androidx.work.Configuration
 import com.locus.app.notifications.ReminderChannels
 import com.locus.app.workers.WorkScheduling
+import com.locus.core.ai.catalog.CatalogRepository
 import com.locus.core.data.reminders.PermissionRevocationMonitor
 import com.locus.core.domain.backup.BackupSettingsRepository
 import com.locus.core.domain.time.DispatcherProvider
@@ -26,6 +27,8 @@ class LocusApplication :
 
     @Inject lateinit var permissionRevocationMonitor: PermissionRevocationMonitor
 
+    @Inject lateinit var catalogRepository: CatalogRepository
+
     override val workManagerConfiguration: Configuration
         get() = Configuration.Builder().setWorkerFactory(workerFactory).build()
 
@@ -35,6 +38,8 @@ class LocusApplication :
         CoroutineScope(SupervisorJob() + dispatchers.default).launch {
             val interval = backupSettingsRepository.getBackupInterval()
             WorkScheduling.schedulePeriodicBackup(this@LocusApplication, interval)
+            WorkScheduling.schedulePeriodicCatalogRefresh(this@LocusApplication)
+            catalogRepository.refreshFromRemote()
             permissionRevocationMonitor.checkAndDowngrade()
         }
     }
