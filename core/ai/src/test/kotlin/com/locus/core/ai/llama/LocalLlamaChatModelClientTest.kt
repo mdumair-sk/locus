@@ -8,6 +8,7 @@ import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.toList
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -92,6 +93,35 @@ class LocalLlamaChatModelClientTest {
             assertTrue("Must contain note content", fullText.contains("1241.43 INR"))
             assertTrue("Must contain citation [1]", fullText.contains("[1]"))
             assertTrue("Last event must be Done", events.last() is StreamEvent.Done)
+        }
+
+    @Test
+    fun generate_whenRuntimeNotLoaded_citesMatchingChunkNumber() =
+        runTest {
+            val runtime = LlamaRuntime()
+            val client = LocalLlamaChatModelClient(runtime)
+            val prompt =
+                """
+                You are an assistant answering questions based on the user's notes.
+                Context:
+                [1] Title: Hotel Booking
+                Content: Hotel reservation in Chicago for 3 nights.
+
+                [2] Title: Fuel Receipt
+                Content: Fuel cost was 45 dollars at Shell station.
+
+                User: what was the cost of the fuel
+                Assistant:
+                """.trimIndent()
+
+            val events = client.generate(prompt).toList()
+
+            assertTrue(events.isNotEmpty())
+            val fullText =
+                events.filterIsInstance<StreamEvent.TokenDelta>().joinToString("") { it.text }
+            assertTrue("Must contain fuel note content", fullText.contains("Fuel cost was 45 dollars"))
+            assertTrue("Must cite chunk [2]", fullText.contains("[2]"))
+            assertFalse("Must not cite chunk [1]", fullText.contains("[1]"))
         }
 
     @Test

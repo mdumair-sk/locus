@@ -118,14 +118,18 @@ class ChatViewModelTest {
         Dispatchers.resetMain()
     }
 
-    private fun createViewModel(): ChatViewModel =
+    private fun createViewModel(
+        rag: RagAnswerUseCase = ragAnswerUseCase,
+        thermalMonitor: ThermalMonitor? = null,
+    ): ChatViewModel =
         ChatViewModel(
             chatRepository = fakeChatRepository,
-            ragAnswerUseCase = ragAnswerUseCase,
+            ragAnswerUseCase = rag,
             noteRepository = fakeNoteRepository,
             clock = fakeClock,
             dispatchers = testDispatchers,
             activeModelRepository = fakeActiveModelRepository,
+            thermalMonitor = thermalMonitor,
         )
 
     @Test
@@ -442,6 +446,65 @@ class ChatViewModelTest {
 
             assertFalse(vm.uiState.value.showThermalWarning)
             assertFalse(fakeThermal.isThrottlingLikely.value)
+        }
+
+    @Test
+    fun stopGeneration_cancelsActiveStreamingAndPreservesPartialText() =
+        runTest(testDispatcher) {
+            val hangingAdapter =
+                object : ProviderAdapter {
+                    override val capabilities =
+                        ProviderCapabilities(
+                            supportsNativeTools = false,
+                            contextLength = 8192,
+                            pricePerMillionInputTokens = null,
+                            pricePerMillionOutputTokens = null,
+                        )
+
+                    override fun streamChat(
+                        messages: List<ProviderMessage>,
+                        tools: List<ToolSchema>,
+                    ): Flow<StreamEvent> =
+                        flow {
+                            emit(StreamEvent.TokenDelta("Partial answer before user stops"))
+                            kotlinx.coroutines.delay(10_000)
+                            emit(StreamEvent.TokenDelta(" Should never appear"))
+                        }
+                }
+
+            val customRag =
+                RagAnswerUseCase(
+                    hybridSearch =
+                        HybridSearchUseCase(
+                            keywordSearch =
+                                object : KeywordSearch {
+                                    override suspend fun search(
+                                        query: String,
+                                        scope: SearchScope,
+                                    ): List<SearchResult> = emptyList()
+                                },
+                            chunkRepository = FakeChunkRepository(),
+                            embeddingGateway = FakeEmbeddingGateway(),
+                        ),
+                    providerAdapter = hangingAdapter,
+                )
+
+            val vm = createViewModel(rag = customRag)
+            advanceUntilIdle()
+
+            vm.sendMessage("What is the cost?")
+            testScheduler.advanceTimeBy(50)
+            assertEquals("Partial answer before user stops", vm.uiState.value.streamingText)
+
+            vm.stopGeneration()
+            advanceUntilIdle()
+
+            assertNull(vm.uiState.value.streamingText)
+            val assistantMessages =
+                vm.uiState.value.messages
+                    .filter { it.role == ChatRole.ASSISTANT }
+            assertTrue(assistantMessages.isNotEmpty())
+            assertEquals("Partial answer before user stops", assistantMessages.last().content)
         }
 
     // --- Fakes ---

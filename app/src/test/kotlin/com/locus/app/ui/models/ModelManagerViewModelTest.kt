@@ -204,6 +204,41 @@ class ModelManagerViewModelTest {
         }
 
     @Test
+    fun observeDownloads_filtersOutCompletedDownloadsFromActiveDownloads() =
+        runTest {
+            advanceUntilIdle()
+            viewModel.uiState.test {
+                val initial = awaitItem()
+                assertTrue(initial.activeDownloads.isEmpty())
+
+                fakeRepo.emitDownloads(
+                    listOf(
+                        ModelDownloadProgress(
+                            workId = "w1",
+                            filename = "in-progress.gguf",
+                            bytesRead = 200L,
+                            totalBytes = 1000L,
+                            progressPercentage = 20,
+                            status = DownloadStatus.DOWNLOADING,
+                        ),
+                        ModelDownloadProgress(
+                            workId = "w2",
+                            filename = "done.gguf",
+                            bytesRead = 1000L,
+                            totalBytes = 1000L,
+                            progressPercentage = 100,
+                            status = DownloadStatus.COMPLETED,
+                        ),
+                    ),
+                )
+
+                val updated = awaitItem()
+                assertEquals(1, updated.activeDownloads.size)
+                assertEquals("in-progress.gguf", updated.activeDownloads[0].filename)
+            }
+        }
+
+    @Test
     fun observeModelMeta_updatesUiStateModelMetaMap() =
         runTest {
             advanceUntilIdle()

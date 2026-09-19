@@ -219,6 +219,38 @@ class RagAnswerUseCaseTest {
         }
 
     @Test
+    fun modelWithoutCitationsSelectsMatchingChunkIndexInsteadOfDefaultingToFirstChunk() =
+        runTest {
+            val chunk1 =
+                SearchResult(
+                    noteId = "note-hotel",
+                    title = "Hotel Booking",
+                    snippet = "Hotel reservation in Chicago for three nights.",
+                )
+            val chunk2 =
+                SearchResult(
+                    noteId = "note-fuel",
+                    title = "Car Expenses",
+                    snippet = "Car rental fuel cost was 45 dollars at the station.",
+                )
+            val (useCase, _) =
+                createUseCase(
+                    searchResults = listOf(chunk1, chunk2),
+                    cannedEvents =
+                        createCannedTokens(
+                            "The cost of the fuel was 45 dollars.",
+                        ),
+                )
+
+            val answer = useCase(query = "what was the cost of the fuel")
+
+            assertTrue("Answer must cite matching chunk [2]", answer.text.contains("[2]"))
+            assertFalse("Answer must not incorrectly cite chunk [1]", answer.text.contains("[1]"))
+            assertEquals(2, answer.sources.size)
+            assertEquals("note-fuel", answer.sources[1].noteId)
+        }
+
+    @Test
     fun searchReturningZeroChunksYieldsZeroSourcesAndStripsHallucinatedCitations() =
         runTest {
             val (useCase, _) =

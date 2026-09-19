@@ -76,6 +76,7 @@ class ChatViewModel
         val effects: Flow<ChatEffect> = _effects.receiveAsFlow()
 
         private var messagesJob: Job? = null
+        private var generationJob: Job? = null
 
         init {
             observeSessions()
@@ -187,43 +188,44 @@ class ChatViewModel
             val trimmed = content.trim()
             if (trimmed.isBlank() || _uiState.value.streamingText != null) return
 
-            viewModelScope.launch(dispatchers.io) {
-                val sessionId =
-                    _uiState.value.activeSessionId
-                        ?: run {
-                            val sessionName = deriveSessionName(trimmed)
-                            val newSession = chatRepository.createSession(sessionName)
-                            _uiState.update { it.copy(activeSessionId = newSession.id) }
-                            updateMessagesObservation(newSession.id)
-                            newSession.id
+            generationJob =
+                viewModelScope.launch(dispatchers.io) {
+                    val sessionId =
+                        _uiState.value.activeSessionId
+                            ?: run {
+                                val sessionName = deriveSessionName(trimmed)
+                                val newSession = chatRepository.createSession(sessionName)
+                                _uiState.update { it.copy(activeSessionId = newSession.id) }
+                                updateMessagesObservation(newSession.id)
+                                newSession.id
+                            }
+
+                    val userMsg =
+                        ChatMessage(
+                            id = UuidV7.generate(clock),
+                            sessionId = sessionId,
+                            role = ChatRole.USER,
+                            content = trimmed,
+                            citations = emptyList(),
+                            timestamp = clock.now(),
+                        )
+                    chatRepository.appendMessage(sessionId, userMsg)
+
+                    val history =
+                        _uiState.value.messages.map { msg ->
+                            ProviderMessage(
+                                role =
+                                    when (msg.role) {
+                                        ChatRole.USER -> ProviderRole.USER
+                                        ChatRole.ASSISTANT -> ProviderRole.ASSISTANT
+                                        ChatRole.SYSTEM -> ProviderRole.SYSTEM
+                                    },
+                                content = msg.content,
+                            )
                         }
 
-                val userMsg =
-                    ChatMessage(
-                        id = UuidV7.generate(clock),
-                        sessionId = sessionId,
-                        role = ChatRole.USER,
-                        content = trimmed,
-                        citations = emptyList(),
-                        timestamp = clock.now(),
-                    )
-                chatRepository.appendMessage(sessionId, userMsg)
-
-                val history =
-                    _uiState.value.messages.map { msg ->
-                        ProviderMessage(
-                            role =
-                                when (msg.role) {
-                                    ChatRole.USER -> ProviderRole.USER
-                                    ChatRole.ASSISTANT -> ProviderRole.ASSISTANT
-                                    ChatRole.SYSTEM -> ProviderRole.SYSTEM
-                                },
-                            content = msg.content,
-                        )
-                    }
-
-                executeStreamingQuery(sessionId, trimmed, history)
-            }
+                    executeStreamingQuery(sessionId, trimmed, history)
+                }
         }
 
         @Suppress("TooGenericExceptionCaught")
@@ -257,6 +259,22 @@ class ChatViewModel
                     )
                 chatRepository.appendMessage(sessionId, assistantMsg)
             } catch (e: CancellationException) {
+                val partialText =
+                    _uiState.value.streamingText
+                        ?.trim()
+                        .orEmpty()
+                if (partialText.isNotBlank()) {
+                    val partialMsg =
+                        ChatMessage(
+                            id = UuidV7.generate(clock),
+                            sessionId = sessionId,
+                            role = ChatRole.ASSISTANT,
+                            content = partialText,
+                            citations = emptyList(),
+                            timestamp = clock.now(),
+                        )
+                    chatRepository.appendMessage(sessionId, partialMsg)
+                }
                 throw e
             } catch (e: Exception) {
                 val errorMsg =
@@ -271,7 +289,13 @@ class ChatViewModel
                 chatRepository.appendMessage(sessionId, errorMsg)
             } finally {
                 _uiState.update { it.copy(streamingText = null) }
+                generationJob = null
             }
+        }
+
+        fun stopGeneration() {
+            generationJob?.cancel()
+            generationJob = null
         }
 
         fun pinAsNote(

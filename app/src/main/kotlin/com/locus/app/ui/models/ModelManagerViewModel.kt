@@ -98,14 +98,23 @@ class ModelManagerViewModel
                 combine(
                     repository.observeDownloads(),
                     dismissedDownloadWorkIds,
-                ) { downloads, dismissedIds -> downloads.filter { it.workId !in dismissedIds } }
-                    .collect { downloads ->
-                        val hadCompleted = downloads.any { it.status == DownloadStatus.COMPLETED }
-                        _uiState.update { it.copy(activeDownloads = downloads) }
-                        if (hadCompleted) {
-                            refreshStorageAndModels()
+                ) { rawDownloads, dismissedIds ->
+                    val hadCompleted = rawDownloads.any { it.status == DownloadStatus.COMPLETED }
+                    val activeList =
+                        rawDownloads.filter {
+                            it.workId !in dismissedIds &&
+                                (
+                                    it.status == DownloadStatus.DOWNLOADING ||
+                                        it.status == DownloadStatus.PENDING
+                                )
                         }
+                    Pair(activeList, hadCompleted)
+                }.collect { (activeList, hadCompleted) ->
+                    _uiState.update { it.copy(activeDownloads = activeList) }
+                    if (hadCompleted) {
+                        refreshStorageAndModels()
                     }
+                }
             }
         }
 

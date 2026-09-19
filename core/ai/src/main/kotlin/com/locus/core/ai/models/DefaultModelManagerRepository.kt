@@ -99,13 +99,9 @@ class DefaultModelManagerRepository
             workId: String,
             filename: String,
         ) {
-            val resolvedFilename = filename.ifBlank { resolveFilenameForWork(workId) }
             runCatching {
                 workManager.cancelWorkById(UUID.fromString(workId))
                 workManager.pruneWork()
-            }
-            if (resolvedFilename.isNotBlank()) {
-                modelDownloader.deleteModel(resolvedFilename)
             }
         }
 

@@ -92,7 +92,21 @@ class RagAnswerUseCase(
                 providerAdapter
             }
 
-        val chunks = resolveSearchChunks(query = query, scope = scope, history = history)
+        val rawChunks = resolveSearchChunks(query = query, scope = scope, history = history)
+        val noteTitles =
+            runCatching {
+                noteRepository?.observeAllNotes()?.first()?.associate { it.id to it.title }
+            }.getOrNull()
+                ?: emptyMap()
+
+        val chunks =
+            rawChunks.map { chunk ->
+                if (chunk.title.isBlank() && noteTitles.containsKey(chunk.noteId)) {
+                    chunk.copy(title = noteTitles[chunk.noteId].orEmpty())
+                } else {
+                    chunk
+                }
+            }
 
         val systemPrompt = buildSystemPrompt(chunks)
         val messages =
@@ -132,7 +146,7 @@ class RagAnswerUseCase(
         }
 
         val strippedText = stripOutOfRangeCitations(rawAnswer, maxRange)
-        val validatedText = ensureMandatoryCitation(strippedText, maxRange)
+        val validatedText = ensureMandatoryCitation(strippedText, query, chunks)
 
         val sources =
             if (maxRange > 0) {
@@ -220,8 +234,10 @@ class RagAnswerUseCase(
 
     private fun ensureMandatoryCitation(
         text: String,
-        maxRange: Int,
+        query: String,
+        chunks: List<SearchResult>,
     ): String {
+        val maxRange = chunks.size
         if (maxRange <= 0 || text.isBlank()) return text
         val hasValidCitation =
             CITATION_REGEX.findAll(text).any { match ->
@@ -230,10 +246,88 @@ class RagAnswerUseCase(
             }
         return if (!hasValidCitation) {
             val trimmed = text.trimEnd()
-            "$trimmed [1]"
+            val bestIndex = findBestMatchingChunkIndex(text, query, chunks)
+            "$trimmed [$bestIndex]"
         } else {
             text
         }
+    }
+
+    private fun findBestMatchingChunkIndex(
+        text: String,
+        query: String,
+        chunks: List<SearchResult>,
+    ): Int {
+        if (chunks.isEmpty()) return 1
+        val stopWords =
+            setOf(
+                "the",
+                "and",
+                "for",
+                "that",
+                "this",
+                "with",
+                "from",
+                "your",
+                "notes",
+                "based",
+                "what",
+                "when",
+                "where",
+                "which",
+                "cost",
+                "about",
+                "there",
+                "were",
+                "have",
+                "been",
+                "will",
+                "would",
+                "could",
+                "should",
+                "their",
+                "here",
+                "they",
+                "some",
+                "them",
+                "these",
+                "than",
+                "then",
+            )
+        val textTokens =
+            text.lowercase().split(Regex("[^a-zA-Z0-9]+")).filter {
+                it.length >= MIN_TOKEN_LENGTH && it !in stopWords
+            }
+
+        val queryTokens =
+            query.lowercase().split(Regex("[^a-zA-Z0-9]+")).filter {
+                it.length >= MIN_TOKEN_LENGTH && it !in stopWords
+            }
+
+        var bestIndex = 1
+        var bestScore = -1
+
+        for ((index, chunk) in chunks.withIndex()) {
+            val chunkContent =
+                (chunk.title + " " + chunk.snippet + " " + chunk.headingPath.joinToString(" "))
+                    .lowercase()
+            var score = 0
+            for (token in textTokens) {
+                if (chunkContent.contains(token)) {
+                    score += MATCH_WEIGHT_TEXT
+                }
+            }
+            for (token in queryTokens) {
+                if (chunkContent.contains(token)) {
+                    score += MATCH_WEIGHT_QUERY
+                }
+            }
+            if (score > bestScore) {
+                bestScore = score
+                bestIndex = index + 1
+            }
+        }
+        return bestIndex
     }
 
     private fun buildLocalPrompt(
@@ -349,6 +443,9 @@ class RagAnswerUseCase(
     companion object {
         private const val MAX_CHUNK_PREVIEW_LENGTH = 4000
         private const val MAX_SUMMARY_NOTES = 15
+        private const val MIN_TOKEN_LENGTH = 3
+        private const val MATCH_WEIGHT_TEXT = 2
+        private const val MATCH_WEIGHT_QUERY = 1
         private val CITATION_REGEX = Regex("""(\s*)\[(\d+)\]""")
         private val PUNCTUATION_REGEX = Regex("""[?!.,'"]""")
         private val FILLER_WORDS_REGEX =

@@ -174,4 +174,5 @@
     <string name="model_picker_active">Active</string>
     <string name="chat_thermal_warning">Device is warm. Generation throttling is likely.</string>
     <string name="chat_thermal_warning_dismiss">Dismiss thermal warning</string>
+    <string name="chat_stop_generation">Stop generating</string>
 </resources>

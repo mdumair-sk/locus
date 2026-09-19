@@ -115,6 +115,7 @@ fun ChatScreen(
                     inputText = ""
                     viewModel.sendMessage(messageToSend)
                 },
+                onStop = { viewModel.stopGeneration() },
                 isStreaming = uiState.streamingText != null,
             )
         },
@@ -433,11 +434,10 @@ private fun CitationsSection(
             fontWeight = FontWeight.Bold,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
-        citations.forEach { source ->
+        citations.forEachIndexed { index, source ->
             val title = source.noteTitle.ifBlank { stringResource(R.string.note_title_placeholder) }
             Text(
-                text = "• $title",
-                style = MaterialTheme.typography.bodySmall,
+                text = "[${index + 1}] $title",
                 color = MaterialTheme.colorScheme.primary,
                 textDecoration = TextDecoration.Underline,
                 modifier =
@@ -492,11 +492,13 @@ private fun StreamingMessageBubble(
     }
 }
 
+@Suppress("LongParameterList")
 @Composable
 private fun ChatInputBar(
     inputText: String,
     onInputTextChange: (String) -> Unit,
     onSend: () -> Unit,
+    onStop: () -> Unit,
     isStreaming: Boolean,
     modifier: Modifier = Modifier,
 ) {
@@ -516,20 +518,32 @@ private fun ChatInputBar(
                 maxLines = 4,
             )
             Spacer(modifier = Modifier.width(8.dp))
-            IconButton(
-                onClick = onSend,
-                enabled = inputText.isNotBlank() && !isStreaming,
-            ) {
-                Icon(
-                    painter = painterResource(R.drawable.ic_send),
-                    contentDescription = stringResource(R.string.chat_send),
-                    tint =
-                        if (inputText.isNotBlank() && !isStreaming) {
-                            MaterialTheme.colorScheme.primary
-                        } else {
-                            MaterialTheme.colorScheme.onSurface.copy(alpha = 0.38f)
-                        },
-                )
+            if (isStreaming) {
+                IconButton(
+                    onClick = onStop,
+                ) {
+                    Icon(
+                        painter = painterResource(R.drawable.ic_stop),
+                        contentDescription = stringResource(R.string.chat_stop_generation),
+                        tint = MaterialTheme.colorScheme.error,
+                    )
+                }
+            } else {
+                IconButton(
+                    onClick = onSend,
+                    enabled = inputText.isNotBlank(),
+                ) {
+                    Icon(
+                        painter = painterResource(R.drawable.ic_send),
+                        contentDescription = stringResource(R.string.chat_send),
+                        tint =
+                            if (inputText.isNotBlank()) {
+                                MaterialTheme.colorScheme.primary
+                            } else {
+                                MaterialTheme.colorScheme.onSurface.copy(alpha = 0.38f)
+                            },
+                    )
+                }
             }
         }
     }
