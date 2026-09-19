@@ -8,8 +8,10 @@ import com.locus.core.domain.models.ModelDownloadProgress
 import com.locus.core.domain.models.ModelFileInfo
 import com.locus.core.domain.models.ModelManagerRepository
 import com.locus.core.domain.models.ModelMeta
+import com.locus.core.domain.models.ModelRecommendation
 import com.locus.core.domain.models.ModelRepoSummary
 import com.locus.core.domain.models.ModelStorageStats
+import com.locus.core.domain.settings.DismissedRecommendationsStore
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -24,6 +26,7 @@ data class ModelManagerUiState(
     val storageStats: ModelStorageStats = ModelStorageStats(0L, 0L, 0L),
     val downloadedModels: List<DownloadedModel> = emptyList(),
     val activeDownloads: List<ModelDownloadProgress> = emptyList(),
+    val recommendations: List<ModelRecommendation> = emptyList(),
     val searchQuery: String = "qwen",
     val isSearchingRepos: Boolean = false,
     val searchResults: List<ModelRepoSummary> = emptyList(),
@@ -42,6 +45,7 @@ class ModelManagerViewModel
     @Inject
     constructor(
         private val repository: ModelManagerRepository,
+        private val dismissedRecommendationsStore: DismissedRecommendationsStore,
     ) : ViewModel() {
         private val _uiState = MutableStateFlow(ModelManagerUiState())
         val uiState: StateFlow<ModelManagerUiState> = _uiState.asStateFlow()
@@ -54,6 +58,7 @@ class ModelManagerViewModel
             refreshStorageAndModels()
             observeDownloads()
             observeModelMeta()
+            observeRecommendations()
             searchRepos("qwen")
         }
 
@@ -94,6 +99,32 @@ class ModelManagerViewModel
                     }
                 }
             }
+        }
+
+        private fun observeRecommendations() {
+            viewModelScope.launch {
+                combine(
+                    repository.observeRecommendations(),
+                    dismissedRecommendationsStore.dismissedIds,
+                ) { recs, dismissedIds -> recs.filter { it.id !in dismissedIds } }
+                    .collect { visibleRecs ->
+                        _uiState.update { it.copy(recommendations = visibleRecs) }
+                    }
+            }
+        }
+
+        fun dismissRecommendation(id: String) {
+            viewModelScope.launch { dismissedRecommendationsStore.dismiss(id) }
+        }
+
+        fun selectRecommendation(recommendation: ModelRecommendation) {
+            onSearchQueryChange(recommendation.repo)
+            selectRepo(
+                ModelRepoSummary(
+                    id = recommendation.repo,
+                    description = recommendation.description.ifBlank { recommendation.name },
+                ),
+            )
         }
 
         fun onSearchQueryChange(query: String) {

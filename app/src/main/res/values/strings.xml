@@ -130,6 +130,8 @@
     <string name="models_storage_title">Storage Usage</string>
     <string name="models_storage_used">%1$s used by models</string>
     <string name="models_storage_free">%1$s free on device</string>
+    <string name="models_recommended_title">Recommended for you</string>
+    <string name="models_dismiss_recommendation">Dismiss recommendation</string>
     <string name="models_downloaded_title">Downloaded Models</string>
     <string name="models_downloaded_empty">No models downloaded yet</string>
     <string name="models_downloads_title">Active Downloads</string>

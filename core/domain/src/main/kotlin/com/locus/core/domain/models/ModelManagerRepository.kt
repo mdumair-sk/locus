@@ -41,4 +41,6 @@ interface ModelManagerRepository {
         modelId: String,
         path: String,
     ): Result<BenchmarkResult>
+
+    fun observeRecommendations(): Flow<List<ModelRecommendation>>
 }

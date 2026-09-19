@@ -8,8 +8,10 @@ import com.locus.core.domain.models.ModelDownloadProgress
 import com.locus.core.domain.models.ModelFileInfo
 import com.locus.core.domain.models.ModelManagerRepository
 import com.locus.core.domain.models.ModelMeta
+import com.locus.core.domain.models.ModelRecommendation
 import com.locus.core.domain.models.ModelRepoSummary
 import com.locus.core.domain.models.ModelStorageStats
+import com.locus.core.domain.settings.DismissedRecommendationsStore
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.Flow
@@ -31,13 +33,15 @@ import org.junit.Test
 class ModelManagerViewModelTest {
     private val testDispatcher = StandardTestDispatcher()
     private lateinit var fakeRepo: FakeModelManagerRepository
+    private lateinit var fakeDismissedStore: FakeDismissedRecommendationsStore
     private lateinit var viewModel: ModelManagerViewModel
 
     @Before
     fun setUp() {
         Dispatchers.setMain(testDispatcher)
         fakeRepo = FakeModelManagerRepository()
-        viewModel = ModelManagerViewModel(fakeRepo)
+        fakeDismissedStore = FakeDismissedRecommendationsStore()
+        viewModel = ModelManagerViewModel(fakeRepo, fakeDismissedStore)
     }
 
     @After
@@ -170,6 +174,7 @@ class ModelManagerViewModelTest {
     @Test
     fun observeDownloads_updatesActiveDownloadsFlow() =
         runTest {
+            advanceUntilIdle()
             viewModel.uiState.test {
                 val initial = awaitItem()
                 assertTrue(initial.activeDownloads.isEmpty())
@@ -197,6 +202,7 @@ class ModelManagerViewModelTest {
     @Test
     fun observeModelMeta_updatesUiStateModelMetaMap() =
         runTest {
+            advanceUntilIdle()
             viewModel.uiState.test {
                 val initial = awaitItem()
                 assertTrue(initial.modelMetaMap.isEmpty())
@@ -269,6 +275,56 @@ class ModelManagerViewModelTest {
             val state = viewModel.uiState.value
             assertNull(state.benchmarkingModelId)
             assertEquals("Benchmark failed: Inference engine error", state.userMessage)
+        }
+
+    @Test
+    fun recommendations_emitsNonDismissedEntries() =
+        runTest {
+            advanceUntilIdle()
+            val state = viewModel.uiState.value
+            assertEquals(2, state.recommendations.size)
+            assertEquals("Qwen3-4B", state.recommendations[0].id)
+            assertEquals("Qwen3-1.7B", state.recommendations[1].id)
+        }
+
+    @Test
+    fun recommendations_filtersOutDismissedEntries() =
+        runTest {
+            val dismissedStore = FakeDismissedRecommendationsStore(setOf("Qwen3-4B"))
+            val vm = ModelManagerViewModel(fakeRepo, dismissedStore)
+            advanceUntilIdle()
+
+            val state = vm.uiState.value
+            assertEquals(1, state.recommendations.size)
+            assertEquals("Qwen3-1.7B", state.recommendations[0].id)
+        }
+
+    @Test
+    fun dismissRecommendation_updatesDismissedStoreAndRemovesFromUiState() =
+        runTest {
+            advanceUntilIdle()
+            assertEquals(2, viewModel.uiState.value.recommendations.size)
+
+            viewModel.dismissRecommendation("Qwen3-4B")
+            advanceUntilIdle()
+
+            val state = viewModel.uiState.value
+            assertEquals(1, state.recommendations.size)
+            assertEquals("Qwen3-1.7B", state.recommendations[0].id)
+        }
+
+    @Test
+    fun selectRecommendation_prefillsDownloadFlowWithoutActivatingModel() =
+        runTest {
+            advanceUntilIdle()
+            val recommendation = viewModel.uiState.value.recommendations[0]
+            viewModel.selectRecommendation(recommendation)
+            advanceUntilIdle()
+
+            val state = viewModel.uiState.value
+            assertEquals("Qwen/Qwen3-4B-GGUF", state.searchQuery)
+            assertEquals("Qwen/Qwen3-4B-GGUF", state.selectedRepo?.id)
+            assertEquals(2, state.quantFiles.size)
         }
 }
 
@@ -398,4 +454,49 @@ private class FakeModelManagerRepository : ModelManagerRepository {
         modelId: String,
         path: String,
     ): Result<BenchmarkResult> = benchmarkResultToReturn
+
+    private val recommendationsFlow =
+        MutableStateFlow<List<ModelRecommendation>>(
+            listOf(
+                ModelRecommendation(
+                    id = "Qwen3-4B",
+                    name = "Qwen3 4B",
+                    repo = "Qwen/Qwen3-4B-GGUF",
+                    filename = "Qwen3-4B-Q4_K_M.gguf",
+                    sha256 = "sha-qwen-4b",
+                    sizeBytes = 2497280256L,
+                    contextLength = 32768,
+                    description = "Recommended default chat model",
+                    task = "Chat",
+                ),
+                ModelRecommendation(
+                    id = "Qwen3-1.7B",
+                    name = "Qwen3 1.7B",
+                    repo = "Qwen/Qwen3-1.7B-GGUF",
+                    filename = "Qwen3-1.7B-Q8_0.gguf",
+                    sha256 = "sha-qwen-1.7b",
+                    sizeBytes = 1834426016L,
+                    contextLength = 32768,
+                    description = "Recommended default utility model",
+                    task = "Utility",
+                ),
+            ),
+        )
+
+    fun emitRecommendations(list: List<ModelRecommendation>) {
+        recommendationsFlow.value = list
+    }
+
+    override fun observeRecommendations(): Flow<List<ModelRecommendation>> = recommendationsFlow
+}
+
+private class FakeDismissedRecommendationsStore(
+    initialDismissed: Set<String> = emptySet(),
+) : DismissedRecommendationsStore {
+    private val flow = MutableStateFlow(initialDismissed)
+    override val dismissedIds: Flow<Set<String>> = flow
+
+    override suspend fun dismiss(entryId: String) {
+        flow.value = flow.value + entryId
+    }
 }

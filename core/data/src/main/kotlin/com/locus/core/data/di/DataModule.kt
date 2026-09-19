@@ -89,6 +89,12 @@ abstract class DataModule {
 
     @Binds
     @Singleton
+    abstract fun bindDismissedRecommendationsStore(
+        impl: com.locus.core.data.settings.DismissedRecommendationsStore,
+    ): com.locus.core.domain.settings.DismissedRecommendationsStore
+
+    @Binds
+    @Singleton
     abstract fun bindModelMetaRepository(impl: RoomModelMetaRepository): ModelMetaRepository
 
     companion object {

@@ -2,6 +2,8 @@ package com.locus.core.ai.models
 
 import androidx.work.WorkInfo
 import androidx.work.WorkManager
+import com.locus.core.ai.catalog.CatalogEntry
+import com.locus.core.ai.catalog.CatalogRepository
 import com.locus.core.ai.hf.HuggingFaceCatalogClient
 import com.locus.core.ai.llama.DeviceFingerprintProvider
 import com.locus.core.ai.llama.ModelBenchmark
@@ -15,6 +17,7 @@ import com.locus.core.domain.models.ModelFileInfo
 import com.locus.core.domain.models.ModelManagerRepository
 import com.locus.core.domain.models.ModelMeta
 import com.locus.core.domain.models.ModelMetaRepository
+import com.locus.core.domain.models.ModelRecommendation
 import com.locus.core.domain.models.ModelRepoSummary
 import com.locus.core.domain.models.ModelStorageStats
 import kotlinx.coroutines.flow.Flow
@@ -23,6 +26,7 @@ import java.util.UUID
 import javax.inject.Inject
 import javax.inject.Singleton
 
+@Suppress("LongParameterList")
 @Singleton
 class DefaultModelManagerRepository
     @Inject
@@ -33,6 +37,7 @@ class DefaultModelManagerRepository
         private val modelBenchmark: ModelBenchmark,
         private val metaRepository: ModelMetaRepository,
         private val deviceProvider: DeviceFingerprintProvider,
+        private val catalogRepository: CatalogRepository,
     ) : ModelManagerRepository {
         override suspend fun searchRepos(query: String): Result<List<ModelRepoSummary>> =
             runCatching {
@@ -200,4 +205,30 @@ class DefaultModelManagerRepository
                 errorMessage = errorMessage,
             )
         }
+
+        override fun observeRecommendations(): Flow<List<ModelRecommendation>> =
+            catalogRepository.current().map { catalog ->
+                val list = mutableListOf<ModelRecommendation>()
+                catalog.chat.forEach { entry -> list.add(entry.toDomainRecommendation("Chat")) }
+                catalog.utility.forEach { entry ->
+                    list.add(entry.toDomainRecommendation("Utility"))
+                }
+                catalog.embeddings.forEach { entry ->
+                    list.add(entry.toDomainRecommendation("Embeddings"))
+                }
+                list
+            }
+
+        private fun CatalogEntry.toDomainRecommendation(task: String): ModelRecommendation =
+            ModelRecommendation(
+                id = id,
+                name = name.ifBlank { id },
+                repo = repo,
+                filename = filename,
+                sha256 = sha256,
+                sizeBytes = sizeBytes,
+                contextLength = contextLength,
+                description = description,
+                task = task,
+            )
     }

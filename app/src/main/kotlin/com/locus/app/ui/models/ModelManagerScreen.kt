@@ -1,3 +1,5 @@
+@file:Suppress("TooManyFunctions")
+
 package com.locus.app.ui.models
 
 import androidx.compose.foundation.layout.Arrangement
@@ -57,6 +59,7 @@ import com.locus.core.domain.models.DownloadedModel
 import com.locus.core.domain.models.ModelDownloadProgress
 import com.locus.core.domain.models.ModelFileInfo
 import com.locus.core.domain.models.ModelMeta
+import com.locus.core.domain.models.ModelRecommendation
 import com.locus.core.domain.models.ModelRepoSummary
 import com.locus.core.domain.models.ModelStorageStats
 import java.util.Locale
@@ -78,6 +81,8 @@ private data class ModelManagerActions(
     val onStartDownload: (ModelFileInfo) -> Unit,
     val onUpdateNotesAndRating: (String, String, Int) -> Unit,
     val onBenchmarkModel: (DownloadedModel) -> Unit,
+    val onDismissRecommendation: (String) -> Unit,
+    val onSelectRecommendation: (ModelRecommendation) -> Unit,
 )
 
 fun formatByteSize(bytes: Long): String {
@@ -123,6 +128,8 @@ fun ModelManagerScreen(
                 },
                 onUpdateNotesAndRating = viewModel::updateModelNotesAndRating,
                 onBenchmarkModel = viewModel::benchmarkModel,
+                onDismissRecommendation = viewModel::dismissRecommendation,
+                onSelectRecommendation = viewModel::selectRecommendation,
             )
         }
     Scaffold(
@@ -175,6 +182,14 @@ private fun ModelManagerContent(
             stats = uiState.storageStats,
             downloadedCount = uiState.downloadedModels.size,
         )
+
+        if (uiState.recommendations.isNotEmpty()) {
+            RecommendationsSection(
+                recommendations = uiState.recommendations,
+                onRecommendationClick = actions.onSelectRecommendation,
+                onDismiss = actions.onDismissRecommendation,
+            )
+        }
 
         DownloadedModelsSection(
             uiState = uiState,
@@ -253,6 +268,130 @@ private fun StorageStatsCard(
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun RecommendationsSection(
+    recommendations: List<ModelRecommendation>,
+    onRecommendationClick: (ModelRecommendation) -> Unit,
+    onDismiss: (String) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Column(modifier = modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Text(
+            text = stringResource(R.string.models_recommended_title),
+            style = MaterialTheme.typography.titleMedium,
+            fontWeight = FontWeight.Bold,
+        )
+        recommendations.forEach { recommendation ->
+            RecommendationCard(
+                recommendation = recommendation,
+                onClick = { onRecommendationClick(recommendation) },
+                onDismiss = { onDismiss(recommendation.id) },
+            )
+        }
+    }
+}
+
+@Suppress("LongMethod")
+@Composable
+private fun RecommendationCard(
+    recommendation: ModelRecommendation,
+    onClick: () -> Unit,
+    onDismiss: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Card(onClick = onClick, modifier = modifier.fillMaxWidth()) {
+        Column(
+            modifier = Modifier.padding(12.dp),
+            verticalArrangement = Arrangement.spacedBy(6.dp),
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Row(
+                    modifier = Modifier.weight(1f).padding(end = 8.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Surface(
+                        color = MaterialTheme.colorScheme.primaryContainer,
+                        shape = MaterialTheme.shapes.extraSmall,
+                    ) {
+                        Text(
+                            text = recommendation.task,
+                            style = MaterialTheme.typography.labelSmall,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.onPrimaryContainer,
+                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+                        )
+                    }
+                    Text(
+                        text = recommendation.name,
+                        style = MaterialTheme.typography.bodyMedium,
+                        fontWeight = FontWeight.Bold,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
+                IconButton(
+                    onClick = onDismiss,
+                    modifier = Modifier.size(28.dp),
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Close,
+                        contentDescription =
+                            stringResource(R.string.models_dismiss_recommendation),
+                        modifier = Modifier.size(18.dp),
+                    )
+                }
+            }
+
+            if (recommendation.description.isNotBlank()) {
+                Text(
+                    text = recommendation.description,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(
+                    text = recommendation.filename,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f, fill = false),
+                )
+                Spacer(modifier = Modifier.width(8.dp))
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    if (recommendation.sizeBytes > 0L) {
+                        Text(
+                            text = formatByteSize(recommendation.sizeBytes),
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                    if (recommendation.contextLength > 0) {
+                        Text(
+                            text = "${recommendation.contextLength} ctx",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
                 }
             }
         }
