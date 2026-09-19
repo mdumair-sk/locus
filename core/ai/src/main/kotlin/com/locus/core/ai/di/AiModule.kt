@@ -120,6 +120,7 @@ abstract class AiModule {
         fun provideProviderAdapter(client: OkHttpClient): ProviderAdapter =
             if (BuildConfig.DEV_API_KEY.isNotBlank()) {
                 GeminiAdapter(
+                    // SEC-3: never log
                     apiKey = BuildConfig.DEV_API_KEY,
                     model = BuildConfig.DEV_MODEL.ifBlank { "gemini-3.5-flash-lite" },
                     client = client,

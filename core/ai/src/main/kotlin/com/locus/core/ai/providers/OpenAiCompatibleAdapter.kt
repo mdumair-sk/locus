@@ -26,7 +26,7 @@ import java.io.IOException
 
 class OpenAiCompatibleAdapter(
     private val baseUrl: String,
-    // SEC-3: API keys are secret and must never be logged
+    // SEC-3: never log
     private val apiKey: String = "",
     private val model: String = "gpt-4o",
     override val capabilities: ProviderCapabilities =

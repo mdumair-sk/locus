@@ -30,6 +30,7 @@ dependencies {
     ksp(libs.room.compiler)
     implementation(libs.documentfile)
     implementation(libs.datastore.preferences)
+    implementation(libs.security.crypto)
     implementation(libs.work.runtime.ktx)
     implementation(libs.hilt.work)
     ksp(libs.hilt.ext.compiler)
@@ -45,4 +46,5 @@ dependencies {
     androidTestImplementation(libs.turbine)
 }
 
+ksp { arg("room.schemaLocation", "$projectDir/schemas") }
 ksp { arg("room.schemaLocation", "$projectDir/schemas") }

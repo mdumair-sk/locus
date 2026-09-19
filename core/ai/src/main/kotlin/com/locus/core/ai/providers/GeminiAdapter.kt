@@ -26,7 +26,7 @@ import java.io.IOException
 
 class GeminiAdapter(
     private val baseUrl: String = DEFAULT_BASE_URL,
-    // SEC-3: API keys are secret and must never be logged
+    // SEC-3: never log
     private val apiKey: String = "",
     private val model: String = DEFAULT_MODEL,
     override val capabilities: ProviderCapabilities = lookupCapabilities(model),
