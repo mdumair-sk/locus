@@ -20,7 +20,9 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Menu
+import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
@@ -46,6 +48,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
@@ -63,6 +66,7 @@ import kotlinx.coroutines.launch
 
 private const val CORNER_RADIUS = 16
 private const val SMALL_CORNER_RADIUS = 4
+private const val BANNER_CORNER_RADIUS = 8
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Suppress("LongMethod")
@@ -115,30 +119,41 @@ fun ChatScreen(
             )
         },
     ) { innerPadding ->
-        MessageList(
-            messages = uiState.messages,
-            streamingText = uiState.streamingText,
-            onSourceClick = onNavigateToEditor,
-            onPinAsNote = { message ->
-                viewModel.pinAsNote(message) { createdNote ->
-                    scope.launch {
-                        val result =
-                            snackbarHostState.showSnackbar(
-                                message =
-                                    String.format(
-                                        noteCreatedTemplate,
-                                        createdNote.title,
-                                    ),
-                                actionLabel = openLabel,
-                            )
-                        if (result == SnackbarResult.ActionPerformed) {
-                            onNavigateToEditor(createdNote.id)
+        Column(modifier = Modifier.fillMaxSize().padding(innerPadding)) {
+            if (uiState.showThermalWarning) {
+                ThermalWarningBanner(
+                    onDismiss = { viewModel.dismissThermalWarning() },
+                    modifier =
+                        Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 16.dp, vertical = 8.dp),
+                )
+            }
+            MessageList(
+                messages = uiState.messages,
+                streamingText = uiState.streamingText,
+                onSourceClick = onNavigateToEditor,
+                onPinAsNote = { message ->
+                    viewModel.pinAsNote(message) { createdNote ->
+                        scope.launch {
+                            val result =
+                                snackbarHostState.showSnackbar(
+                                    message =
+                                        String.format(
+                                            noteCreatedTemplate,
+                                            createdNote.title,
+                                        ),
+                                    actionLabel = openLabel,
+                                )
+                            if (result == SnackbarResult.ActionPerformed) {
+                                onNavigateToEditor(createdNote.id)
+                            }
                         }
                     }
-                }
-            },
-            modifier = Modifier.fillMaxSize().padding(innerPadding),
-        )
+                },
+                modifier = Modifier.weight(1f),
+            )
+        }
     }
 
     if (showSessionSheet) {
@@ -229,6 +244,49 @@ private fun ChatTopBar(
             }
         },
     )
+}
+
+@Composable
+private fun ThermalWarningBanner(
+    onDismiss: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Surface(
+        modifier = modifier.fillMaxWidth().testTag("thermal_warning_banner"),
+        color = MaterialTheme.colorScheme.errorContainer,
+        shape = RoundedCornerShape(BANNER_CORNER_RADIUS.dp),
+        tonalElevation = 2.dp,
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Icon(
+                imageVector = Icons.Default.Warning,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.onErrorContainer,
+                modifier = Modifier.size(20.dp),
+            )
+            Spacer(modifier = Modifier.width(8.dp))
+            Text(
+                text = stringResource(R.string.chat_thermal_warning),
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onErrorContainer,
+                modifier = Modifier.weight(1f),
+            )
+            IconButton(
+                onClick = onDismiss,
+                modifier = Modifier.size(24.dp),
+            ) {
+                Icon(
+                    imageVector = Icons.Default.Close,
+                    contentDescription = stringResource(R.string.chat_thermal_warning_dismiss),
+                    tint = MaterialTheme.colorScheme.onErrorContainer,
+                    modifier = Modifier.size(16.dp),
+                )
+            }
+        }
+    }
 }
 
 @Composable

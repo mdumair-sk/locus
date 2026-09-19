@@ -172,4 +172,6 @@
     <string name="model_picker_price_format">$%1$.2f/M in</string>
     <string name="model_picker_benchmark_speed">%1$.1f tok/s</string>
     <string name="model_picker_active">Active</string>
+    <string name="chat_thermal_warning">Device is warm. Generation throttling is likely.</string>
+    <string name="chat_thermal_warning_dismiss">Dismiss thermal warning</string>
 </resources>

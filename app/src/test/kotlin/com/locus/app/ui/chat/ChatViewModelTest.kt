@@ -10,6 +10,7 @@ import com.locus.core.domain.chat.ChatSession
 import com.locus.core.domain.chat.CitedSource
 import com.locus.core.domain.chat.ModelTier
 import com.locus.core.domain.chat.RagAnswerUseCase
+import com.locus.core.domain.chat.ThermalMonitor
 import com.locus.core.domain.models.ModelRegistry
 import com.locus.core.domain.models.RegistryEntry
 import com.locus.core.domain.notes.Checksum
@@ -40,6 +41,8 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.emptyFlow
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.map
@@ -50,6 +53,7 @@ import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.test.setMain
 import org.junit.After
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
@@ -393,7 +397,76 @@ class ChatViewModelTest {
             assertEquals(32_768, vm.uiState.value.activeModel.contextLength)
         }
 
+    @Test
+    fun thermalWarningSurfacesInUiStateAndEffectWhenThrottlingOccurs() =
+        runTest(testDispatcher) {
+            val fakeThermal = FakeThermalMonitor(initialThrottling = false)
+            val vm =
+                ChatViewModel(
+                    chatRepository = fakeChatRepository,
+                    ragAnswerUseCase = ragAnswerUseCase,
+                    noteRepository = fakeNoteRepository,
+                    clock = fakeClock,
+                    dispatchers = testDispatchers,
+                    activeModelRepository = fakeActiveModelRepository,
+                    thermalMonitor = fakeThermal,
+                )
+            advanceUntilIdle()
+            assertFalse(vm.uiState.value.showThermalWarning)
+
+            fakeThermal.setThrottling(true)
+            advanceUntilIdle()
+
+            assertTrue(vm.uiState.value.showThermalWarning)
+        }
+
+    @Test
+    fun dismissThermalWarningClearsUiStateAndCallsMonitor() =
+        runTest(testDispatcher) {
+            val fakeThermal = FakeThermalMonitor(initialThrottling = true)
+            val vm =
+                ChatViewModel(
+                    chatRepository = fakeChatRepository,
+                    ragAnswerUseCase = ragAnswerUseCase,
+                    noteRepository = fakeNoteRepository,
+                    clock = fakeClock,
+                    dispatchers = testDispatchers,
+                    activeModelRepository = fakeActiveModelRepository,
+                    thermalMonitor = fakeThermal,
+                )
+            advanceUntilIdle()
+            assertTrue(vm.uiState.value.showThermalWarning)
+
+            vm.dismissThermalWarning()
+            advanceUntilIdle()
+
+            assertFalse(vm.uiState.value.showThermalWarning)
+            assertFalse(fakeThermal.isThrottlingLikely.value)
+        }
+
     // --- Fakes ---
+    private class FakeThermalMonitor(
+        initialThrottling: Boolean = false,
+    ) : ThermalMonitor {
+        private val _isThrottlingLikely = MutableStateFlow(initialThrottling)
+        override val isThrottlingLikely: StateFlow<Boolean> = _isThrottlingLikely.asStateFlow()
+
+        override fun startMonitoring() {
+            // no-op in test
+        }
+
+        override fun stopMonitoring() {
+            // no-op in test
+        }
+
+        override fun dismissWarning() {
+            _isThrottlingLikely.value = false
+        }
+
+        fun setThrottling(value: Boolean) {
+            _isThrottlingLikely.value = value
+        }
+    }
 
     private class FakeClock(
         private var currentInstant: Instant,

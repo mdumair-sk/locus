@@ -9,6 +9,7 @@ import com.locus.core.ai.llama.DeviceFingerprintProvider
 import com.locus.core.ai.llama.LlamaRuntime
 import com.locus.core.ai.llama.LocalLlamaChatModelClient
 import com.locus.core.ai.llama.ModelDownloader
+import com.locus.core.ai.llama.ThermalMonitor
 import com.locus.core.ai.models.AndroidDeviceCapabilitiesGateway
 import com.locus.core.ai.models.DefaultModelManagerRepository
 import com.locus.core.ai.models.DefaultModelRegistry
@@ -35,6 +36,7 @@ import kotlinx.coroutines.sync.withLock
 import okhttp3.OkHttpClient
 import javax.inject.Inject
 import javax.inject.Singleton
+import com.locus.core.domain.chat.ThermalMonitor as DomainThermalMonitor
 
 @Singleton
 internal class EmbeddingRunnerGatewayAdapter
@@ -95,10 +97,17 @@ abstract class AiModule {
     @Singleton
     abstract fun bindDeviceCapabilitiesGateway(impl: AndroidDeviceCapabilitiesGateway): DeviceCapabilitiesGateway
 
+    @Binds @Singleton
+    abstract fun bindThermalMonitor(impl: ThermalMonitor): DomainThermalMonitor
+
     companion object {
         @Provides
         @Singleton
         fun provideOkHttpClient(): OkHttpClient = OkHttpClient.Builder().build()
+
+        @Provides
+        @Singleton
+        fun provideLlamaRuntime(thermalMonitor: DomainThermalMonitor): LlamaRuntime = LlamaRuntime(thermalMonitor)
 
         @Provides
         @Singleton

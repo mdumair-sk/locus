@@ -7,6 +7,7 @@ import com.locus.core.domain.chat.ChatRepository
 import com.locus.core.domain.chat.ChatRole
 import com.locus.core.domain.chat.ChatSession
 import com.locus.core.domain.chat.RagAnswerUseCase
+import com.locus.core.domain.chat.ThermalMonitor
 import com.locus.core.domain.models.ModelRegistry
 import com.locus.core.domain.models.RegistryEntry
 import com.locus.core.domain.notes.Note
@@ -20,10 +21,13 @@ import com.locus.core.domain.time.DispatcherProvider
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -45,7 +49,12 @@ data class ChatUiState(
             tier = com.locus.core.domain.chat.ModelTier.CLOUD,
         ),
     val availableModels: List<RegistryEntry> = emptyList(),
+    val showThermalWarning: Boolean = false,
 )
+
+sealed interface ChatEffect {
+    data object ThermalThrottlingWarning : ChatEffect
+}
 
 @HiltViewModel
 @Suppress("LongParameterList")
@@ -59,9 +68,12 @@ class ChatViewModel
         private val dispatchers: DispatcherProvider,
         private val activeModelRepository: com.locus.core.domain.chat.ActiveModelRepository,
         private val modelRegistry: ModelRegistry? = null,
+        private val thermalMonitor: ThermalMonitor? = null,
     ) : ViewModel() {
         private val _uiState = MutableStateFlow(ChatUiState())
         val uiState: StateFlow<ChatUiState> = _uiState.asStateFlow()
+        private val _effects = Channel<ChatEffect>(Channel.BUFFERED)
+        val effects: Flow<ChatEffect> = _effects.receiveAsFlow()
 
         private var messagesJob: Job? = null
 
@@ -69,6 +81,7 @@ class ChatViewModel
             observeSessions()
             observeActiveModel()
             observeModelRegistry()
+            observeThermalStatus()
         }
 
         private fun observeSessions() {
@@ -113,6 +126,23 @@ class ChatViewModel
                     }
                 }
             }
+        }
+
+        private fun observeThermalStatus() {
+            val monitor = thermalMonitor ?: return
+            viewModelScope.launch(dispatchers.io) {
+                monitor.isThrottlingLikely.collectLatest { isThrottling ->
+                    if (isThrottling && !_uiState.value.showThermalWarning) {
+                        _uiState.update { it.copy(showThermalWarning = true) }
+                        _effects.trySend(ChatEffect.ThermalThrottlingWarning)
+                    }
+                }
+            }
+        }
+
+        fun dismissThermalWarning() {
+            _uiState.update { it.copy(showThermalWarning = false) }
+            thermalMonitor?.dismissWarning()
         }
 
         fun selectModel(entry: RegistryEntry) {
